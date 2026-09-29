@@ -5,15 +5,18 @@ from sklearn.ensemble import IsolationForest
 import logging
 import os
 import joblib
+import warnings
 
+# Ignore pandas warnings
+warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 
 def parse_zeek_log(filepath):
-    """Legge un file conn.log di Zeek e lo converte in DataFrame Pandas"""
+    """Reads a Zeek conn.log file and converts it into a Pandas DataFrame."""
     with open(filepath, 'r') as f:
         lines = f.readlines()
         
-    # Trova la riga con i nomi delle colonne
+    # Find the line with column names
     columns = []
     data_lines = []
     for line in lines:
@@ -24,10 +27,10 @@ def parse_zeek_log(filepath):
             
     df = pd.DataFrame(data_lines, columns=columns)
     
-    # Sostituiamo i '-' (valori nulli di Zeek) con 0
+    # Replace '-' (Zeek null values) with 0
     df.replace('-', 0, inplace=True)
     
-    # Convertiamo le colonne numeriche
+    # Convert numerical columns
     numeric_cols = ['duration', 'orig_bytes', 'resp_bytes', 'orig_pkts', 'resp_pkts']
     for col in numeric_cols:
         if col in df.columns:
@@ -40,22 +43,22 @@ def main():
     baseline_path = os.path.join(current_dir, "../../lab/shared/zeek_logs/baseline.log")
     test_path = os.path.join(current_dir, "../../lab/shared/zeek_logs/test_attack.log")
     
-    logging.info(f"Caricamento Baseline da {baseline_path}...")
+    logging.info(f"Loading Baseline from {baseline_path}...")
     try:
         df_baseline = parse_zeek_log(baseline_path)
     except FileNotFoundError:
-        logging.error("File baseline.log non trovato!")
+        logging.error("File baseline.log not found!")
         return
 
-    logging.info(f"Caricamento Test Set da {test_path}...")
+    logging.info(f"Loading Test Set from {test_path}...")
     try:
         df_test = parse_zeek_log(test_path)
     except FileNotFoundError:
-        logging.error("File test_attack.log non trovato!")
+        logging.error("File test_attack.log not found!")
         return
         
-    logging.info(f"Connessioni Baseline (Train): {len(df_baseline)}")
-    logging.info(f"Connessioni Test (Attack): {len(df_test)}")
+    logging.info(f"Baseline Connections (Train): {len(df_baseline)}")
+    logging.info(f"Test Connections (Attack): {len(df_test)}")
     
     # 1. Feature Selection
     features = ['id.resp_p', 'proto', 'service', 'duration', 'orig_bytes', 'resp_bytes', 'conn_state']
@@ -64,51 +67,52 @@ def main():
     X_test = df_test[features].copy()
     
     # 2. Preprocessing
-    logging.info("Preprocessing dei dati (One-Hot Encoding)...")
+    logging.info("Data Preprocessing (One-Hot Encoding)...")
     
-    # TRUCCO ML 2: Diciamo esplicitamente a Pandas quali sono tutte le categorie possibili.
-    # Altrimenti, se "REJ" non esiste nel baseline, la colonna viene scartata nel reindex
-    # e il modello diventa cieco ai connection reset!
+    # Explicitly define all possible categories for Pandas.
+    # Ensures no categorical columns are missing during dummy encoding
+    # if a category (e.g. REJ) isn't present in the baseline log.
     zeek_states = ['S0', 'S1', 'SF', 'REJ', 'S2', 'S3', 'RSTO', 'RSTR', 'RSTOS0', 'RSTRH', 'SH', 'SHR', 'OTH']
     zeek_services = ['http', 'ssh', 'dns', 'ftp', 'ssl', '0']
     
     for df in [X_train, X_test]:
         df['conn_state'] = pd.Categorical(df['conn_state'], categories=zeek_states)
-        # Sostituiamo il service nullo di Zeek ("-") con "0" prima di fare il categorical
+        # Replace Zeek null service ("-") with "0" before applying categories
         df['service'] = df['service'].replace('-', '0')
         df['service'] = pd.Categorical(df['service'], categories=zeek_services)
     
     X_train = pd.get_dummies(X_train, columns=['proto', 'service', 'conn_state'])
     X_test = pd.get_dummies(X_test, columns=['proto', 'service', 'conn_state'])
     
+    # Ensure test columns match training columns exactly
     X_test = X_test.reindex(columns=X_train.columns, fill_value=0)
     
-    # 3. Addestramento Isolation Forest
-    logging.info("Addestramento del modello Isolation Forest sul traffico Baseline...")
+    # 3. Isolation Forest Training
+    logging.info("Training Isolation Forest model on Baseline traffic...")
     model = IsolationForest(n_estimators=100, contamination=0.01, random_state=42)
     model.fit(X_train)
     
-    # 4. Salvataggio del modello per l'uso in tempo reale (Milestone 5)
+    # 4. Save the model for real-time use (Milestone 5)
     model_path = os.path.join(current_dir, "ids_model.pkl")
     columns_path = os.path.join(current_dir, "ids_columns.pkl")
     joblib.dump(model, model_path)
     joblib.dump(X_train.columns, columns_path)
-    logging.info(f"Modello salvato con successo in {model_path}!")
+    logging.info(f"Model saved successfully to {model_path}!")
     
-    # 5. Predizione sul Test Set (Attacco)
-    logging.info("\nRicerca di anomalie sul file di Test...")
-    df_test['is_anomaly'] = model.predict(X_test) # 1 = Normale, -1 = Anomalia
+    # 5. Prediction on Test Set (Attack)
+    logging.info("\nSearching for anomalies on the Test file...")
+    df_test['is_anomaly'] = model.predict(X_test) # 1 = Normal, -1 = Anomaly
     
     anomalies = df_test[df_test['is_anomaly'] == -1]
     normal = df_test[df_test['is_anomaly'] == 1]
     
-    logging.info(f"\n--- RISULTATI TEST (Efficacia IDS) ---")
-    logging.info(f"Connessioni analizzate: {len(df_test)}")
-    logging.info(f"Classificate come NORMALI: {len(normal)}")
-    logging.info(f"Classificate come ANOMALE: {len(anomalies)}")
+    logging.info(f"\n--- TEST RESULTS (IDS Efficacy) ---")
+    logging.info(f"Analyzed connections: {len(df_test)}")
+    logging.info(f"Classified as NORMAL: {len(normal)}")
+    logging.info(f"Classified as ANOMALOUS: {len(anomalies)}")
     
     if len(anomalies) > 0:
-        logging.info("\nEsempi di traffico flaggato come ATTACCO:")
+        logging.info("\nExamples of traffic flagged as ATTACK:")
         print(anomalies[['ts', 'id.orig_h', 'id.resp_h', 'id.resp_p', 'service', 'conn_state', 'duration']].head(15))
         
 if __name__ == "__main__":

@@ -8,47 +8,47 @@ import socket
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Gli indirizzi IP dei server nella rete vulnerabile
+# IP addresses of the vulnerable servers
 SERVERS = ["192.168.10.10", "192.168.10.11"]
 
 def simulate_http(target_ip):
     try:
-        logging.info(f"Simulazione richiesta HTTP a {target_ip}...")
+        logging.info(f"Simulating HTTP request to {target_ip}...")
         response = requests.get(f"http://{target_ip}", timeout=3)
         logging.info(f"HTTP GET {target_ip}: Status {response.status_code}")
     except Exception as e:
-        logging.warning(f"Errore HTTP su {target_ip}: {e}")
+        logging.warning(f"HTTP error on {target_ip}: {e}")
 
 def simulate_ssh_login(target_ip):
-    # Simuliamo un login SSH. Anche se fallisce o passa, genera traffico utile per l'IDS.
-    # Usiamo credenziali finte (il server reale non le ha, ma il traffico SSH viene catturato).
+    # Simulate an SSH login. Even if auth fails, it generates useful traffic for the IDS.
+    # We use fake credentials (the real server doesn't have them, but SSH traffic is captured).
     username = "admin"
     password = "password123"
     try:
-        logging.info(f"Simulazione login SSH verso {target_ip}...")
+        logging.info(f"Simulating SSH login to {target_ip}...")
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        # Impostiamo timeout brevi per non bloccare lo script
+        # Short timeouts to prevent script blocking
         ssh.connect(target_ip, username=username, password=password, timeout=3, auth_timeout=3)
         ssh.close()
-        logging.info(f"SSH {target_ip}: Connessione terminata.")
+        logging.info(f"SSH {target_ip}: Connection terminated.")
     except paramiko.AuthenticationException:
-        logging.info(f"SSH {target_ip}: Auth failed (Comportamento atteso, il traffico è stato comunque generato).")
+        logging.info(f"SSH {target_ip}: Auth failed (Expected behavior, traffic was still generated).")
     except Exception as e:
-        logging.warning(f"Errore SSH su {target_ip}: {e}")
+        logging.warning(f"SSH error on {target_ip}: {e}")
 
 def main():
-    logging.info("Avvio del generatore di traffico Baseline...")
+    logging.info("Starting Baseline Traffic Generator...")
     while True:
-        # Scegliamo un server target a caso
+        # Choose a random target server
         target = random.choice(SERVERS)
         
-        # Scegliamo a caso il protocollo (70% probabilità HTTP, 30% SSH)
+        # Randomly choose protocol (70% probability HTTP, 30% SSH)
         action = random.choices([simulate_http, simulate_ssh_login], weights=[0.7, 0.3])[0]
         
         action(target)
         
-        # Attesa randomica per simulare un comportamento umano "bursty"
+        # Random delay to simulate human-like "bursty" behavior
         sleep_time = random.uniform(0.1, 0.5)
         time.sleep(sleep_time)
 
