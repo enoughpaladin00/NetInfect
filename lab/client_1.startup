@@ -1,2 +1,6 @@
 ifconfig eth0 192.168.10.100 netmask 255.255.255.0 up
 route add default gw 192.168.10.254
+
+# Avvio del generatore di traffico in background
+nohup python3 /shared/baseline_traffic.py > /var/log/baseline.log 2>&1 &
+
