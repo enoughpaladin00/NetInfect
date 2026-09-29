@@ -7,3 +7,9 @@ ip link set eth0 promisc on
 # Isoliamo la rete di quarantena (nessun routing verso la rete vulnerabile)
 iptables -A FORWARD -s 192.168.20.0/24 -d 192.168.10.0/24 -j DROP
 iptables -A FORWARD -s 192.168.10.0/24 -d 192.168.20.0/24 -j DROP
+
+# Configurazione e Avvio Zeek
+# I log verranno salvati nella cartella condivisa così da poterli leggere dal Mac o da altri script
+mkdir -p /shared/zeek_logs
+cd /shared/zeek_logs
+nohup zeek -i eth0 > /var/log/zeek_sys.log 2>&1 &
