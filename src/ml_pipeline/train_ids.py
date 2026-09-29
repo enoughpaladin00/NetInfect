@@ -59,9 +59,10 @@ def main():
     X = pd.get_dummies(X, columns=['proto', 'service', 'conn_state'])
     
     # 3. Addestramento Isolation Forest
-    # contamination=0.15 significa che ci aspettiamo circa il 15% di traffico anomalo nel dataset
+    # contamination='auto' permette al modello di decidere da solo la soglia di anomalia
+    # invece di forzarlo a marcare il 15% esatto del dataset come anomalo.
     logging.info("Addestramento del modello Isolation Forest...")
-    model = IsolationForest(n_estimators=100, contamination=0.15, random_state=42)
+    model = IsolationForest(n_estimators=100, contamination='auto', random_state=42)
     
     # Addestriamo il modello sull'intero dataset (baseline + attack)
     model.fit(X)
