@@ -4,6 +4,7 @@ import numpy as np
 from sklearn.ensemble import IsolationForest
 import logging
 import os
+import joblib
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 
@@ -35,55 +36,71 @@ def parse_zeek_log(filepath):
     return df
 
 def main():
-    # Otteniamo il percorso assoluto della cartella corrente per trovare il log
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    log_path = os.path.join(current_dir, "../../lab/shared/zeek_logs/conn.log")
+    baseline_path = os.path.join(current_dir, "../../lab/shared/zeek_logs/baseline.log")
+    test_path = os.path.join(current_dir, "../../lab/shared/zeek_logs/test_attack.log")
     
-    logging.info(f"Caricamento log da {log_path}...")
-    
+    logging.info(f"Caricamento Baseline da {baseline_path}...")
     try:
-        df = parse_zeek_log(log_path)
+        df_baseline = parse_zeek_log(baseline_path)
     except FileNotFoundError:
-        logging.error("File conn.log non trovato! Assicurati di aver avviato Kathara e Zeek.")
+        logging.error("File baseline.log non trovato!")
+        return
+
+    logging.info(f"Caricamento Test Set da {test_path}...")
+    try:
+        df_test = parse_zeek_log(test_path)
+    except FileNotFoundError:
+        logging.error("File test_attack.log non trovato!")
         return
         
-    logging.info(f"Trovate {len(df)} connessioni registrate.")
+    logging.info(f"Connessioni Baseline (Train): {len(df_baseline)}")
+    logging.info(f"Connessioni Test (Attack): {len(df_test)}")
     
     # 1. Feature Selection
-    # Scegliamo le colonne che descrivono il comportamento della connessione
     features = ['id.resp_p', 'proto', 'service', 'duration', 'orig_bytes', 'resp_bytes', 'conn_state']
-    X = df[features].copy()
     
-    # 2. Preprocessing (One-Hot Encoding per le variabili categoriche)
-    logging.info("Preprocessing dei dati (conversione testuale -> numerica)...")
-    X = pd.get_dummies(X, columns=['proto', 'service', 'conn_state'])
+    X_train = df_baseline[features].copy()
+    X_test = df_test[features].copy()
+    
+    # 2. Preprocessing
+    logging.info("Preprocessing dei dati (One-Hot Encoding)...")
+    X_train = pd.get_dummies(X_train, columns=['proto', 'service', 'conn_state'])
+    X_test = pd.get_dummies(X_test, columns=['proto', 'service', 'conn_state'])
+    
+    # TRUCCO ML: Il dataset di test potrebbe avere valori diversi (es. protocolli o porte diverse).
+    # Dobbiamo allineare le colonne di X_test affinché siano identiche a quelle su cui si è allenato X_train.
+    X_test = X_test.reindex(columns=X_train.columns, fill_value=0)
     
     # 3. Addestramento Isolation Forest
-    # contamination='auto' permette al modello di decidere da solo la soglia di anomalia
-    # invece di forzarlo a marcare il 15% esatto del dataset come anomalo.
-    logging.info("Addestramento del modello Isolation Forest...")
-    model = IsolationForest(n_estimators=100, contamination='auto', random_state=42)
+    # Visto che ora usiamo il baseline PULITO, possiamo dirgli che le anomalie attese
+    # sono pochissime o quasi inesistenti (es. 1%)
+    logging.info("Addestramento del modello Isolation Forest sul traffico Baseline...")
+    model = IsolationForest(n_estimators=100, contamination=0.01, random_state=42)
+    model.fit(X_train)
     
-    # Addestriamo il modello sull'intero dataset (baseline + attack)
-    model.fit(X)
+    # 4. Salvataggio del modello per l'uso in tempo reale (Milestone 5)
+    model_path = os.path.join(current_dir, "ids_model.pkl")
+    columns_path = os.path.join(current_dir, "ids_columns.pkl")
+    joblib.dump(model, model_path)
+    joblib.dump(X_train.columns, columns_path)
+    logging.info(f"Modello salvato con successo in {model_path}!")
     
-    # 4. Predizione e Valutazione
-    df['anomaly_score'] = model.decision_function(X)
-    df['is_anomaly'] = model.predict(X) # 1 = Normale, -1 = Anomalia
+    # 5. Predizione sul Test Set (Attacco)
+    logging.info("\nRicerca di anomalie sul file di Test...")
+    df_test['is_anomaly'] = model.predict(X_test) # 1 = Normale, -1 = Anomalia
     
-    # Dividiamo i risultati
-    anomalies = df[df['is_anomaly'] == -1]
-    normal = df[df['is_anomaly'] == 1]
+    anomalies = df_test[df_test['is_anomaly'] == -1]
+    normal = df_test[df_test['is_anomaly'] == 1]
     
-    logging.info(f"\n--- RISULTATI RILEVAMENTO ---")
-    logging.info(f"Connessioni Normali (Baseline): {len(normal)}")
-    logging.info(f"Connessioni Anomale (Attacco):  {len(anomalies)}")
+    logging.info(f"\n--- RISULTATI TEST (Efficacia IDS) ---")
+    logging.info(f"Connessioni analizzate: {len(df_test)}")
+    logging.info(f"Classificate come NORMALI: {len(normal)}")
+    logging.info(f"Classificate come ANOMALE: {len(anomalies)}")
     
     if len(anomalies) > 0:
-        logging.info("\nEsempi di connessioni intercettate dall'IDS come ATTACCO:")
+        logging.info("\nEsempi di traffico flaggato come ATTACCO:")
         print(anomalies[['ts', 'id.orig_h', 'id.resp_h', 'id.resp_p', 'service', 'conn_state', 'duration']].head(15))
         
-    logging.info("\nModello ML addestrato e testato con successo!")
-
 if __name__ == "__main__":
     main()
