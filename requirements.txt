@@ -1,0 +1,5 @@
+requests
+paramiko
+scikit-learn
+pandas
+numpy
