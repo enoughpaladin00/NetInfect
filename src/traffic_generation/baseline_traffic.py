@@ -49,7 +49,7 @@ def main():
         action(target)
         
         # Attesa randomica per simulare un comportamento umano "bursty"
-        sleep_time = random.uniform(1.0, 5.0)
+        sleep_time = random.uniform(0.1, 0.5)
         time.sleep(sleep_time)
 
 if __name__ == "__main__":

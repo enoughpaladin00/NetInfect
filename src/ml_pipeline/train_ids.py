@@ -65,11 +65,22 @@ def main():
     
     # 2. Preprocessing
     logging.info("Preprocessing dei dati (One-Hot Encoding)...")
+    
+    # TRUCCO ML 2: Diciamo esplicitamente a Pandas quali sono tutte le categorie possibili.
+    # Altrimenti, se "REJ" non esiste nel baseline, la colonna viene scartata nel reindex
+    # e il modello diventa cieco ai connection reset!
+    zeek_states = ['S0', 'S1', 'SF', 'REJ', 'S2', 'S3', 'RSTO', 'RSTR', 'RSTOS0', 'RSTRH', 'SH', 'SHR', 'OTH']
+    zeek_services = ['http', 'ssh', 'dns', 'ftp', 'ssl', '0']
+    
+    for df in [X_train, X_test]:
+        df['conn_state'] = pd.Categorical(df['conn_state'], categories=zeek_states)
+        # Sostituiamo il service nullo di Zeek ("-") con "0" prima di fare il categorical
+        df['service'] = df['service'].replace('-', '0')
+        df['service'] = pd.Categorical(df['service'], categories=zeek_services)
+    
     X_train = pd.get_dummies(X_train, columns=['proto', 'service', 'conn_state'])
     X_test = pd.get_dummies(X_test, columns=['proto', 'service', 'conn_state'])
     
-    # TRUCCO ML: Il dataset di test potrebbe avere valori diversi (es. protocolli o porte diverse).
-    # Dobbiamo allineare le colonne di X_test affinché siano identiche a quelle su cui si è allenato X_train.
     X_test = X_test.reindex(columns=X_train.columns, fill_value=0)
     
     # 3. Addestramento Isolation Forest
