@@ -1,0 +1,9 @@
+ifconfig eth0 192.168.10.254 netmask 255.255.255.0 up
+ifconfig eth1 192.168.20.254 netmask 255.255.255.0 up
+
+# Impostiamo eth0 (Vulnerable Net) in promiscuous mode per permettere a Zeek di "sentire" tutto il traffico del collision domain
+ip link set eth0 promisc on
+
+# Isoliamo la rete di quarantena (nessun routing verso la rete vulnerabile)
+iptables -A FORWARD -s 192.168.20.0/24 -d 192.168.10.0/24 -j DROP
+iptables -A FORWARD -s 192.168.10.0/24 -d 192.168.20.0/24 -j DROP

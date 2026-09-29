@@ -1,0 +1,2 @@
+ifconfig eth0 192.168.20.10 netmask 255.255.255.0 up
+# Nessun gateway di default per isolare completamente l'ambiente, la comunicazione avviene solo L2 o col gateway locale
