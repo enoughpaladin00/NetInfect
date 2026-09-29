@@ -84,8 +84,6 @@ def main():
     X_test = X_test.reindex(columns=X_train.columns, fill_value=0)
     
     # 3. Addestramento Isolation Forest
-    # Visto che ora usiamo il baseline PULITO, possiamo dirgli che le anomalie attese
-    # sono pochissime o quasi inesistenti (es. 1%)
     logging.info("Addestramento del modello Isolation Forest sul traffico Baseline...")
     model = IsolationForest(n_estimators=100, contamination=0.01, random_state=42)
     model.fit(X_train)

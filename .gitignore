@@ -29,4 +29,4 @@ ENV/
 .kathara/
 lab/**/*.out
 lab/**/*.pcap
-Guidelines_NetInfect.md
+Guidelines_NetInfect.md*.pkl
