@@ -36,7 +36,7 @@ def tail_and_predict(log_file, model_path, columns_path):
     
     with open(log_file, 'r') as f:
         # Move the pointer to the END of the file to only analyze new events
-        f.seek(0, 2)
+        f.seek(0, os.SEEK_END)
         
         while True:
             line = f.readline()
