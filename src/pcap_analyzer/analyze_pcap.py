@@ -113,6 +113,7 @@ def main():
         current_dir = os.path.dirname(os.path.abspath(__file__))
         model_path = os.path.abspath(os.path.join(current_dir, "../ml_pipeline/ids_model.pkl"))
         scaler_path = os.path.abspath(os.path.join(current_dir, "../ml_pipeline/ids_scaler.pkl"))
+        iso_path = os.path.abspath(os.path.join(current_dir, "../ml_pipeline/ids_iso_model.pkl"))
         
         if not os.path.exists(model_path) or not os.path.exists(scaler_path):
             logging.error(f"ML models not found at {model_path}. Run train_ids.py first.")
@@ -120,9 +121,14 @@ def main():
             
         model = joblib.load(model_path)
         scaler = joblib.load(scaler_path)
+        iso_model = joblib.load(iso_path)
         
+        import numpy as np
         X_scaled = scaler.transform(X)
-        predictions = model.predict(X_scaled)
+        anomaly_scores = iso_model.decision_function(X_scaled).reshape(-1, 1)
+        X_stacked = np.hstack((X_scaled, anomaly_scores))
+        
+        predictions = model.predict(X_stacked)
         df_agg['prediction'] = predictions
         
         anomalies = df_agg[df_agg['prediction'] == 1]

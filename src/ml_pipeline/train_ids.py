@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, IsolationForest
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
@@ -49,6 +49,7 @@ def feature_engineering(df):
     
     df = df.sort_values('ts_datetime')
     
+    # Aggregation
     grouped = df.groupby(['id.orig_h', pd.Grouper(key='ts_datetime', freq='2s')]).agg(
         conn_count=('id.resp_p', 'count'),
         unique_ports=('id.resp_p', 'nunique'),
@@ -69,7 +70,7 @@ def feature_engineering(df):
 def main():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     baseline_path = os.path.join(current_dir, "../../lab/shared/zeek_logs/baseline.log")
-    attack_path = os.path.join(current_dir, "../../lab/shared/zeek_logs/pure_attack.log")
+    attack_path = os.path.join(current_dir, "../../lab/shared/zeek_logs/test_attack.log")
     
     logging.info("--- PHASE 1: Supervised Learning (Random Forest) ---")
     
@@ -117,21 +118,36 @@ def main():
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
     
-    # Model Training
-    logging.info("Training Random Forest Classifier on labeled traffic...")
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X_train_scaled, y_train)
+    # 1. Unsupervised Learning (Isolation Forest)
+    logging.info("Training Unsupervised Model (Isolation Forest)...")
+    iso_model = IsolationForest(n_estimators=100, random_state=42, contamination=0.05)
+    iso_model.fit(X_train_scaled)
+    
+    # Extract anomaly scores (Feature Stacking)
+    train_anomaly_scores = iso_model.decision_function(X_train_scaled).reshape(-1, 1)
+    test_anomaly_scores = iso_model.decision_function(X_test_scaled).reshape(-1, 1)
+    
+    # Append the new feature
+    X_train_stacked = np.hstack((X_train_scaled, train_anomaly_scores))
+    X_test_stacked = np.hstack((X_test_scaled, test_anomaly_scores))
+    
+    # 2. Supervised Learning (Random Forest)
+    logging.info("Training Supervised Model (Random Forest) with Feature Stacking...")
+    model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
+    model.fit(X_train_stacked, y_train)
     
     # Save models
     model_path = os.path.join(current_dir, "ids_model.pkl")
     scaler_path = os.path.join(current_dir, "ids_scaler.pkl")
+    iso_model_path = os.path.join(current_dir, "ids_iso_model.pkl")
     joblib.dump(model, model_path)
     joblib.dump(scaler, scaler_path)
-    logging.info(f"Model and Scaler saved to {current_dir}!")
+    joblib.dump(iso_model, iso_model_path)
+    logging.info(f"Models and Scaler saved to {current_dir}!")
     
     # Evaluation
-    logging.info("\nEvaluating model on the unseen Test Set (30%)...")
-    y_pred = model.predict(X_test_scaled)
+    logging.info("\nEvaluating HYBRID model on the unseen Test Set (30%)...")
+    y_pred = model.predict(X_test_stacked)
     
     acc = accuracy_score(y_test, y_pred)
     logging.info(f"\n--- TEST RESULTS (Accuracy: {acc * 100:.2f}%) ---")

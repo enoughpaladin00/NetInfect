@@ -8,6 +8,7 @@ import urllib.error
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# IP addresses of the vulnerable servers
 SERVERS = ["192.168.10.10", "192.168.10.11"]
 URIS = ["/", "/index.html", "/about", "/contact", "/api/v1/status", "/images/logo.png"]
 
@@ -57,6 +58,7 @@ def simulate_ssh_login(target_ip):
 def main():
     logging.info("Starting ADVANCED Baseline Traffic Generator (Simulating real office network)...")
     while True:
+        # Choose a random target server
         target = random.choice(SERVERS)
         
         # Determine the action to take
