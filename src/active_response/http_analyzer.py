@@ -65,11 +65,11 @@ def tail_http_log(log_file):
                     # Log the alert to a CSV for the Dashboard
                     alert_log_path = os.path.join(current_dir, "../../lab/shared/zeek_logs/alerts.csv")
                     if not os.path.exists(alert_log_path):
-                        with open(alert_log_path, "w") as f:
-                            f.write("timestamp,attacker_ip,reason\n")
+                        with open(alert_log_path, "w") as alert_f:
+                            alert_f.write("timestamp,attacker_ip,reason\n")
                     
-                    with open(alert_log_path, "a") as f:
-                        f.write(f"{int(time.time())},{orig_h},WAF: {attack_type} ({decoded_uri})\n")
+                    with open(alert_log_path, "a") as alert_f:
+                        alert_f.write(f"{int(time.time())},{orig_h},WAF: {attack_type} ({decoded_uri})\n")
                         
                 except subprocess.CalledProcessError:
                     logging.error(f"❌ Impossible to send iptables command to Kathara.")

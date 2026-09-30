@@ -136,11 +136,11 @@ def tail_and_predict(log_file, model_path, scaler_path, iso_model_path):
                     # Log the alert to a CSV for the Dashboard
                     alert_log_path = os.path.join(current_dir, "../../lab/shared/zeek_logs/alerts.csv")
                     if not os.path.exists(alert_log_path):
-                        with open(alert_log_path, "w") as f:
-                            f.write("timestamp,attacker_ip,reason\n")
+                        with open(alert_log_path, "w") as alert_f:
+                            alert_f.write("timestamp,attacker_ip,reason\n")
                     
-                    with open(alert_log_path, "a") as f:
-                        f.write(f"{int(time.time())},{orig_h},ML-IDS Hybrid Detection (Conns: {conn_count})\n")
+                    with open(alert_log_path, "a") as alert_f:
+                        alert_f.write(f"{int(time.time())},{orig_h},ML-IDS Hybrid Detection (Conns: {conn_count})\n")
                         
                     # Clear history for blocked IP to save memory
                     del recent_conns[orig_h]
