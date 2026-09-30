@@ -75,7 +75,7 @@ with st.container(horizontal=True):
     st.metric("Rejected Conns (Possible Scan)", tot_rej, delta=rej_delta, delta_color="inverse", border=True)
     st.metric("HTTP Requests (Layer 7)", tot_http, border=True)
 
-st.space(small=True)
+st.space("small")
 
 # --- GRAFICI ---
 if not df_conn.empty:
@@ -104,17 +104,17 @@ if not df_conn.empty:
 else:
     st.info("Nessun dato di connessione rilevato. In attesa di traffico...", icon=":material/hourglass_empty:")
 
-st.space(small=True)
+st.space("small")
 
 # --- LOG RAW E ATTACCHI HTTP ---
 with st.container(border=True):
     st.subheader("Ultime Richieste HTTP (WAF)", icon=":material/web:")
     if not df_http.empty:
-        st.dataframe(df_http[['ts', 'orig_h', 'method', 'host', 'uri']].tail(10), hide_index=True, use_container_width=True)
+        st.dataframe(df_http[['ts', 'orig_h', 'method', 'host', 'uri']].tail(10), hide_index=True, width="stretch")
     else:
         st.caption("Nessuna richiesta HTTP rilevata.")
         
-st.space(small=True)
+st.space("small")
 
 # --- STORICO ATTACCHI (ALERTS) ---
 with st.container(border=True):
@@ -123,7 +123,7 @@ with st.container(border=True):
         df_alerts_disp = df_alerts.copy()
         df_alerts_disp['Time'] = pd.to_datetime(df_alerts_disp['timestamp'], unit='s').dt.strftime('%Y-%m-%d %H:%M:%S')
         df_alerts_disp = df_alerts_disp[['Time', 'attacker_ip', 'reason']].sort_values(by='Time', ascending=False)
-        st.dataframe(df_alerts_disp, hide_index=True, use_container_width=True)
+        st.dataframe(df_alerts_disp, hide_index=True, width="stretch")
     else:
         st.success("Nessun attacco rilevato finora. La rete è sicura.", icon=":material/verified:")
 
