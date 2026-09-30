@@ -49,7 +49,6 @@ def feature_engineering(df):
     
     df = df.sort_values('ts_datetime')
     
-    # Aggregation
     grouped = df.groupby(['id.orig_h', pd.Grouper(key='ts_datetime', freq='2s')]).agg(
         conn_count=('id.resp_p', 'count'),
         unique_ports=('id.resp_p', 'nunique'),
@@ -59,6 +58,10 @@ def feature_engineering(df):
         total_orig_bytes=('orig_bytes', 'sum'),
         total_resp_bytes=('resp_bytes', 'sum')
     ).reset_index()
+    
+    # Calculate advanced features
+    grouped['bytes_ratio'] = grouped['total_orig_bytes'] / (grouped['total_resp_bytes'] + 1)
+    grouped['avg_duration'] = grouped['total_duration'] / (grouped['conn_count'] + 0.001)
     
     grouped = grouped[grouped['conn_count'] > 0]
     return grouped
@@ -98,7 +101,9 @@ def main():
     logging.info(f"Total Attack Windows: {len(df_attack_agg)}")
     
     # Features for the model
-    features = ['conn_count', 'unique_ports', 'rej_count', 'rstr_count', 'total_duration', 'total_orig_bytes']
+    features = ['conn_count', 'unique_ports', 'rej_count', 'rstr_count', 
+                'total_duration', 'total_orig_bytes', 'total_resp_bytes', 
+                'bytes_ratio', 'avg_duration']
     
     X = df_full[features]
     y = df_full['label']

@@ -106,7 +106,7 @@ def main():
             logging.info("No connections found for 2-second window aggregation.")
             return
             
-        features = ['conn_count', 'unique_ports', 'rej_count', 'rstr_count', 'total_duration', 'total_orig_bytes']
+        features = ['conn_count', 'unique_ports', 'rej_count', 'rstr_count', 'total_duration', 'total_orig_bytes', 'total_resp_bytes', 'bytes_ratio', 'avg_duration']
         X = df_agg[features]
         
         # Load models

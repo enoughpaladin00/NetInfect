@@ -88,6 +88,9 @@ def tail_and_predict(log_file, model_path, scaler_path):
             rstr_count = sum(conn[3] for conn in window)
             total_duration = sum(conn[4] for conn in window)
             total_orig_bytes = sum(conn[5] for conn in window)
+            total_resp_bytes = sum(conn[6] for conn in window)
+            bytes_ratio = total_orig_bytes / (total_resp_bytes + 1)
+            avg_duration = total_duration / (conn_count + 0.001)
             
             features = pd.DataFrame([{
                 'conn_count': conn_count,
@@ -95,7 +98,10 @@ def tail_and_predict(log_file, model_path, scaler_path):
                 'rej_count': rej_count,
                 'rstr_count': rstr_count,
                 'total_duration': total_duration,
-                'total_orig_bytes': total_orig_bytes
+                'total_orig_bytes': total_orig_bytes,
+                'total_resp_bytes': total_resp_bytes,
+                'bytes_ratio': bytes_ratio,
+                'avg_duration': avg_duration
             }])
             
             # Scale features

@@ -1,56 +1,79 @@
 #!/usr/bin/env python3
 import time
 import random
-import requests
-import paramiko
-import logging
 import socket
+import logging
+import urllib.request
+import urllib.error
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# IP addresses of the vulnerable servers
 SERVERS = ["192.168.10.10", "192.168.10.11"]
+URIS = ["/", "/index.html", "/about", "/contact", "/api/v1/status", "/images/logo.png"]
 
-def simulate_http(target_ip):
+def simulate_http_browsing(target_ip):
+    uri = random.choice(URIS)
+    url = f"http://{target_ip}{uri}"
     try:
-        logging.info(f"Simulating HTTP request to {target_ip}...")
-        response = requests.get(f"http://{target_ip}", timeout=3)
-        logging.info(f"HTTP GET {target_ip}: Status {response.status_code}")
-    except Exception as e:
-        logging.warning(f"HTTP error on {target_ip}: {e}")
+        logging.info(f"User browsing: {url}")
+        # Add random User-Agent to simulate real browsers
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        urllib.request.urlopen(req, timeout=2)
+    except Exception:
+        pass # Normal to fail if the web server doesn't exist, we just want to generate traffic
+
+def simulate_large_download(target_ip):
+    # Simulate a user downloading a large file by sending a request and waiting
+    # In a real lab, the server would return a large file. Here we just hit an endpoint.
+    url = f"http://{target_ip}/download/large_dataset.zip"
+    try:
+        logging.info(f"User starting large download from {target_ip}...")
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        urllib.request.urlopen(req, timeout=3)
+    except Exception:
+        pass
 
 def simulate_ssh_login(target_ip):
-    # Simulate an SSH login. Even if auth fails, it generates useful traffic for the IDS.
-    # We use fake credentials (the real server doesn't have them, but SSH traffic is captured).
-    username = "admin"
-    password = "password123"
+    # We use a raw socket to simulate SSH traffic without needing the paramiko library.
+    # Zeek identifies SSH via the protocol banner.
     try:
-        logging.info(f"Simulating SSH login to {target_ip}...")
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        # Short timeouts to prevent script blocking
-        ssh.connect(target_ip, username=username, password=password, timeout=3, auth_timeout=3)
-        ssh.close()
-        logging.info(f"SSH {target_ip}: Connection terminated.")
-    except paramiko.AuthenticationException:
-        logging.info(f"SSH {target_ip}: Auth failed (Expected behavior, traffic was still generated).")
-    except Exception as e:
-        logging.warning(f"SSH error on {target_ip}: {e}")
+        logging.info(f"User initiating SSH connection to {target_ip}...")
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(2)
+        s.connect((target_ip, 22))
+        
+        # Read the SSH banner
+        banner = s.recv(1024)
+        
+        # Send a fake client banner and some garbage simulating an auth attempt
+        s.sendall(b"SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.1\r\n")
+        time.sleep(0.5)
+        s.sendall(b"fake_encrypted_auth_payload_1234567890\n")
+        
+        s.close()
+    except Exception:
+        pass
 
 def main():
-    logging.info("Starting Baseline Traffic Generator...")
+    logging.info("Starting ADVANCED Baseline Traffic Generator (Simulating real office network)...")
     while True:
-        # Choose a random target server
         target = random.choice(SERVERS)
         
-        # Randomly choose protocol (70% probability HTTP, 30% SSH)
-        action = random.choices([simulate_http, simulate_ssh_login], weights=[0.7, 0.3])[0]
+        # Determine the action to take
+        action_choice = random.random()
         
-        action(target)
-        
-        # Random delay to simulate human-like "bursty" behavior
-        sleep_time = random.uniform(0.1, 0.5)
-        time.sleep(sleep_time)
+        if action_choice < 0.6:
+            # 60% chance of normal web browsing (rapid clicks)
+            simulate_http_browsing(target)
+            time.sleep(random.uniform(0.1, 1.5))
+        elif action_choice < 0.8:
+            # 20% chance of an SSH session (lasts a bit longer)
+            simulate_ssh_login(target)
+            time.sleep(random.uniform(1.0, 3.0))
+        else:
+            # 20% chance of a large download or heavy request
+            simulate_large_download(target)
+            time.sleep(random.uniform(2.0, 5.0))
 
 if __name__ == "__main__":
     main()
