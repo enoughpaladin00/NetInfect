@@ -3,3 +3,5 @@ paramiko
 scikit-learn
 pandas
 numpy
+streamlit
+plotly

