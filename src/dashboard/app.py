@@ -100,6 +100,7 @@ def render_dashboard():
                 st.subheader("Stati della Connessione", icon=":material/pie_chart:")
                 state_counts = df_conn['conn_state'].value_counts().reset_index()
                 state_counts.columns = ['State', 'Count']
+            # Se ci sono molti REJ o RSTR, spiccano in rosso
                 fig2 = px.pie(state_counts, names='State', values='Count', template='plotly_dark', hole=0.4)
                 st.plotly_chart(fig2, key="pie_chart")
     else:

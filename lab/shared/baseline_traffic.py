@@ -57,7 +57,7 @@ def main():
         
         if action_choice < 0.6:
             simulate_http_browsing(target)
-            time.sleep(random.uniform(0.1, 1.5))
+            time.sleep(random.uniform(1.5, 4.0))
         elif action_choice < 0.8:
             simulate_ssh_login(target)
             time.sleep(random.uniform(1.0, 3.0))

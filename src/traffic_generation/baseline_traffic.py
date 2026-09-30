@@ -67,7 +67,7 @@ def main():
         if action_choice < 0.6:
             # 60% chance of normal web browsing (rapid clicks)
             simulate_http_browsing(target)
-            time.sleep(random.uniform(0.1, 1.5))
+            time.sleep(random.uniform(1.5, 4.0))
         elif action_choice < 0.8:
             # 20% chance of an SSH session (lasts a bit longer)
             simulate_ssh_login(target)
