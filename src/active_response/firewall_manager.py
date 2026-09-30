@@ -6,42 +6,40 @@ import joblib
 import logging
 import subprocess
 import warnings
+from collections import defaultdict
 
-# Ignore pandas warnings
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
-def tail_and_predict(log_file, model_path, columns_path):
+def tail_and_predict(log_file, model_path, scaler_path):
     """
-    Reads the conn.log file in real-time, uses the ML model to evaluate
-    connections, and sends iptables commands to the gateway if anomalies are found.
+    Reads the conn.log file in real-time, maintains a 2-second rolling window 
+    per IP, evaluates it using the ML model, and updates iptables if anomalous.
     """
-    logging.info("Loading Machine Learning model...")
+    logging.info("Loading Machine Learning model and Scaler...")
     try:
         model = joblib.load(model_path)
-        expected_columns = joblib.load(columns_path)
+        scaler = joblib.load(scaler_path)
     except Exception as e:
-        logging.error(f"Error loading model: {e}")
+        logging.error(f"Error loading model/scaler: {e}")
         return
 
-    # Keep track of IPs we have already blocked to avoid flooding the gateway with iptables rules.
     blocked_ips = set()
     
-    # Fixed categories used during training
-    zeek_states = ['S0', 'S1', 'SF', 'REJ', 'S2', 'S3', 'RSTO', 'RSTR', 'RSTOS0', 'RSTRH', 'SH', 'SHR', 'OTH']
-    zeek_services = ['http', 'ssh', 'dns', 'ftp', 'ssl', '0']
+    # Dictionary to keep a rolling window of recent connections per IP.
+    # Format: { 'ip_address': [ (ts, resp_p, is_rej, is_rstr, duration, orig_bytes, resp_bytes), ... ] }
+    recent_conns = defaultdict(list)
+    WINDOW_SIZE = 2.0 # seconds
     
     logging.info(f"Listening in real-time on file: {log_file}")
     logging.info("Waiting for new traffic...")
     
     with open(log_file, 'r') as f:
-        # Move the pointer to the END of the file to only analyze new events
         f.seek(0, os.SEEK_END)
         
         while True:
             line = f.readline()
             if not line:
-                # If there's nothing new, wait half a second
                 time.sleep(0.5)
                 continue
                 
@@ -52,64 +50,81 @@ def tail_and_predict(log_file, model_path, columns_path):
             if len(parts) < 21:
                 continue
                 
-            # Extract values from Zeek columns (standard position)
-            orig_h, resp_p, proto, service, duration, orig_bytes, resp_bytes, conn_state = parts[2], parts[5], parts[6], parts[7], parts[8], parts[9], parts[10], parts[11]
+            ts, _, orig_h, _, _, resp_p, _, _, duration, orig_bytes, resp_bytes, conn_state = parts[:12]
             
-            # If the IP is already in our blacklist, don't waste CPU analyzing it
             if orig_h in blocked_ips:
                 continue
                 
-            # Prepare data for the model
-            row = {
-                'id.resp_p': int(resp_p),
-                'proto': proto,
-                'service': service if service != '-' else '0',
-                'duration': float(duration) if duration != '-' else 0.0,
-                'orig_bytes': float(orig_bytes) if orig_bytes != '-' else 0.0,
-                'resp_bytes': float(resp_bytes) if resp_bytes != '-' else 0.0,
-                'conn_state': conn_state
-            }
+            try:
+                current_ts = float(ts)
+                resp_p = int(resp_p)
+                duration = float(duration) if duration != '-' else 0.0
+                orig_bytes = float(orig_bytes) if orig_bytes != '-' else 0.0
+                resp_bytes = float(resp_bytes) if resp_bytes != '-' else 0.0
+                is_rej = 1 if conn_state == 'REJ' else 0
+                is_rstr = 1 if conn_state == 'RSTR' else 0
+            except ValueError:
+                continue # Skip malformed lines
+                
+            # Add new connection to the history
+            recent_conns[orig_h].append((current_ts, resp_p, is_rej, is_rstr, duration, orig_bytes, resp_bytes))
             
-            df = pd.DataFrame([row])
+            # Remove connections outside the 2-second window
+            recent_conns[orig_h] = [
+                conn for conn in recent_conns[orig_h] 
+                if conn[0] >= current_ts - WINDOW_SIZE
+            ]
             
-            # Preprocessing (Identical to training)
-            df['conn_state'] = pd.Categorical(df['conn_state'], categories=zeek_states)
-            df['service'] = pd.Categorical(df['service'], categories=zeek_services)
-            df['proto'] = pd.Categorical(df['proto'], categories=['tcp', 'udp', 'icmp'])
+            # Calculate aggregated features for the current window
+            window = recent_conns[orig_h]
+            conn_count = len(window)
+            unique_ports = len(set(conn[1] for conn in window))
+            rej_count = sum(conn[2] for conn in window)
+            rstr_count = sum(conn[3] for conn in window)
+            total_duration = sum(conn[4] for conn in window)
+            total_orig_bytes = sum(conn[5] for conn in window)
             
-            df_dummies = pd.get_dummies(df, columns=['proto', 'service', 'conn_state'])
-            df_model = df_dummies.reindex(columns=expected_columns, fill_value=0)
+            features = pd.DataFrame([{
+                'conn_count': conn_count,
+                'unique_ports': unique_ports,
+                'rej_count': rej_count,
+                'rstr_count': rstr_count,
+                'total_duration': total_duration,
+                'total_orig_bytes': total_orig_bytes
+            }])
             
-            # --- PREDICTION ---
-            prediction = model.predict(df_model)[0]
+            # Scale features
+            features_scaled = scaler.transform(features)
             
-            if prediction == -1: # Anomaly Detected!
-                logging.warning(f"⚠️ ANOMALY DETECTED! Source: {orig_h} (Dest Port: {resp_p}, State: {conn_state})")
+            # Predict
+            prediction = model.predict(features_scaled)[0]
+            
+            if prediction == -1: # Anomaly
+                logging.warning(f"⚠️ ANOMALY DETECTED! Source: {orig_h}")
+                logging.warning(f"   Details: {conn_count} conns, {unique_ports} unique ports, {rej_count} REJ in the last {WINDOW_SIZE}s")
                 logging.warning(f"🛡️  Executing firewall block on IP {orig_h}...")
                 
-                # Command to have the gateway insert an iptables rule on the fly
                 current_dir = os.path.dirname(os.path.abspath(__file__))
                 lab_dir = os.path.join(current_dir, "../../lab")
-                
-                # Block traffic passing through the gateway (FORWARD)
                 cmd_fw = f"cd {lab_dir} && kathara exec gateway -- iptables -I FORWARD -s {orig_h} -j DROP"
                 
                 try:
                     subprocess.run(cmd_fw, shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     logging.info(f"✅ IP {orig_h} successfully added to the Gateway Blacklist!")
-                    blocked_ips.add(orig_h) # Do not analyze/block this IP again
+                    blocked_ips.add(orig_h)
+                    # Clear history for blocked IP to save memory
+                    del recent_conns[orig_h]
                 except subprocess.CalledProcessError:
                     logging.error(f"❌ Impossible to send iptables command to Kathara.")
 
 if __name__ == "__main__":
-    # Relative paths
     current_dir = os.path.dirname(os.path.abspath(__file__))
     log_path = os.path.join(current_dir, "../../lab/shared/zeek_logs/conn.log")
     model_p = os.path.join(current_dir, "../ml_pipeline/ids_model.pkl")
-    cols_p = os.path.join(current_dir, "../ml_pipeline/ids_columns.pkl")
+    scaler_p = os.path.join(current_dir, "../ml_pipeline/ids_scaler.pkl")
     
     if not os.path.exists(model_p):
         logging.error("Model not found. Run 'python3 src/ml_pipeline/train_ids.py' first to create it.")
         exit(1)
         
-    tail_and_predict(log_path, model_p, cols_p)
+    tail_and_predict(log_path, model_p, scaler_p)
