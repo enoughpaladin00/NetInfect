@@ -56,12 +56,11 @@ Ensure you have the following installed on your machine:
 
 ### Option A: The Live Lab (Kathara)
 
-**Step 1: Start the Laboratory**
-Start the network simulation. The clients will automatically begin generating normal background traffic.
+**Step 1: Start the Laboratory (Terminal 1)**
+Start the network simulation. The clients will wait 30 seconds to allow the servers to fully boot, and then they will automatically begin generating normal background traffic.
 ```bash
 cd lab
 kathara lstart
-cd ..
 ```
 
 **Step 2: Train the Machine Learning Model**
@@ -70,30 +69,49 @@ The repository comes with a pre-trained model. If you wish to retrain it using t
 source .venv/bin/activate
 python3 src/ml_pipeline/train_ids.py
 ```
+*(Note: Wait until Kathara finishes deploying all devices before proceeding to the next steps)*
 
-**Step 3: Launch the Visual Dashboard**
+**Step 3: Start the Firewalls (L3/L4 ML and L7 WAF) (Terminal 2 & 3)**
+The firewalls will automatically wait for Zeek to generate the logs if they haven't been created yet.
+```bash
+# Terminal 2 - ML Firewall
+source .venv/bin/activate
+python3 src/active_response/firewall_manager.py
+```
+```bash
+# Terminal 3 - L7 WAF
+source .venv/bin/activate
+python3 src/active_response/http_analyzer.py
+```
+
+**Step 4: Launch the Visual Dashboard (Terminal 4)**
 Open a new terminal and run:
 ```bash
 source .venv/bin/activate
 streamlit run src/dashboard/app.py
 ```
 
-**Step 4: Start the Firewalls (L3/L4 ML and L7 WAF)**
-Open another terminal:
-```bash
-source .venv/bin/activate
-python3 src/active_response/firewall_manager.py &
-python3 src/active_response/http_analyzer.py &
-```
-
-**Step 5: Generate Attack Traffic**
-Trigger the attack from the external attacker machine:
+**Step 4: Launch Targeted Attacks (Terminal 5 or Terminal 1)**
+Once you see legitimate traffic flowing on the Dashboard, connect to the attacker machine (WAN zone) to launch your attacks.
 ```bash
 cd lab
 kathara connect attacker
+```
+You can now select which specific attack vector to execute using the `--attack` flag:
+```bash
+# View help menu
+python3 /shared/anomaly_traffic.py --help
+
+# Launch specific attacks
+python3 /shared/anomaly_traffic.py --attack web        # SQLi & XSS
+python3 /shared/anomaly_traffic.py --attack portscan   # Port Scanning
+python3 /shared/anomaly_traffic.py --attack ddos       # HTTP Flood DoS
+python3 /shared/anomaly_traffic.py --attack slowloris  # Slowloris DoS
+
+# Launch all attacks sequentially
 python3 /shared/anomaly_traffic.py
 ```
-*Watch the Streamlit Dashboard and the Firewall terminal as the attacks are detected and blocked in real-time!*
+*Watch the Streamlit Dashboard and the Firewall terminals as the attacks are detected and blocked in real-time!*
 
 ---
 
