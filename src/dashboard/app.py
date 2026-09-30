@@ -11,6 +11,7 @@ st.set_page_config(page_title="NetInfect IDS Dashboard", page_icon="🛡️", la
 current_dir = os.path.dirname(os.path.abspath(__file__))
 CONN_LOG_PATH = os.path.join(current_dir, "../../lab/shared/zeek_logs/conn.log")
 HTTP_LOG_PATH = os.path.join(current_dir, "../../lab/shared/zeek_logs/http.log")
+ALERTS_LOG_PATH = os.path.join(current_dir, "../../lab/shared/zeek_logs/alerts.csv")
 
 def read_zeek_log(filepath, columns):
     """Legge in modo sicuro un file di log Zeek e restituisce un DataFrame limitato."""
@@ -61,6 +62,22 @@ df_conn = read_zeek_log(CONN_LOG_PATH, conn_cols)
 http_cols = ['ts', 'uid', 'orig_h', 'orig_p', 'resp_h', 'resp_p', 'trans_depth', 'method', 'host', 'uri']
 df_http = read_zeek_log(HTTP_LOG_PATH, http_cols)
 
+# 3. Carica Storico Attacchi (Alerts)
+df_alerts = pd.DataFrame(columns=["timestamp", "attacker_ip", "reason"])
+if os.path.exists(ALERTS_LOG_PATH):
+    try:
+        df_alerts = pd.read_csv(ALERTS_LOG_PATH)
+        df_alerts['timestamp'] = pd.to_numeric(df_alerts['timestamp'], errors='coerce')
+    except Exception:
+        pass
+
+# --- ALLARMI ATTIVI ---
+if not df_alerts.empty:
+    latest_alert_time = df_alerts['timestamp'].max()
+    current_time = int(time.time())
+    if current_time - latest_alert_time < 15:
+        st.error(f"🚨 INTRUSION DETECTED! Un attacco è in corso o è stato appena bloccato. Controlla lo storico in basso.")
+
 # --- METRICHE IN CIMA ---
 col1, col2, col3, col4 = st.columns(4)
 
@@ -108,6 +125,17 @@ if not df_http.empty:
     st.dataframe(df_http[['ts', 'orig_h', 'method', 'host', 'uri']].tail(10), use_container_width=True)
 else:
     st.info("Nessuna richiesta HTTP rilevata.")
+    
+# --- STORICO ATTACCHI (ALERTS) ---
+st.markdown("---")
+st.subheader("🛑 Storico Attacchi e Interventi Firewall")
+if not df_alerts.empty:
+    df_alerts_disp = df_alerts.copy()
+    df_alerts_disp['Time'] = pd.to_datetime(df_alerts_disp['timestamp'], unit='s').dt.strftime('%Y-%m-%d %H:%M:%S')
+    df_alerts_disp = df_alerts_disp[['Time', 'attacker_ip', 'reason']].sort_values(by='Time', ascending=False)
+    st.dataframe(df_alerts_disp, use_container_width=True)
+else:
+    st.success("Nessun attacco rilevato finora. La rete è sicura.")
     
 # Aggiorna automaticamente l'app Streamlit ogni 3 secondi
 time.sleep(3)
