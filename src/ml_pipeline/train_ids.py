@@ -17,6 +17,7 @@ def parse_zeek_log(filepath):
     with open(filepath, 'r') as f:
         lines = f.readlines()
         
+    # Find the line with column names
     columns = []
     data_lines = []
     for line in lines:
@@ -26,8 +27,11 @@ def parse_zeek_log(filepath):
             data_lines.append(line.strip().split('\t'))
             
     df = pd.DataFrame(data_lines, columns=columns)
+    
+    # Replace '-' (Zeek null values) with 0
     df.replace('-', 0, inplace=True)
     
+    # Convert numerical columns
     numeric_cols = ['ts', 'id.resp_p', 'duration', 'orig_bytes', 'resp_bytes']
     for col in numeric_cols:
         if col in df.columns:

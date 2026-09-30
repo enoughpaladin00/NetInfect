@@ -24,6 +24,7 @@ def tail_and_predict(log_file, model_path, scaler_path):
         logging.error(f"Error loading model/scaler: {e}")
         return
 
+    # Keep track of IPs we have already blocked to avoid flooding the gateway with iptables rules.
     blocked_ips = set()
     
     # Dictionary to keep a rolling window of recent connections per IP.
@@ -35,11 +36,13 @@ def tail_and_predict(log_file, model_path, scaler_path):
     logging.info("Waiting for new traffic...")
     
     with open(log_file, 'r') as f:
+        # Move the pointer to the END of the file to only analyze new events
         f.seek(0, os.SEEK_END)
         
         while True:
             line = f.readline()
             if not line:
+                # If there's nothing new, wait half a second
                 time.sleep(0.5)
                 continue
                 
@@ -50,8 +53,10 @@ def tail_and_predict(log_file, model_path, scaler_path):
             if len(parts) < 21:
                 continue
                 
+            # Extract values from Zeek columns (standard position)
             ts, _, orig_h, _, _, resp_p, _, _, duration, orig_bytes, resp_bytes, conn_state = parts[:12]
             
+            # If the IP is already in our blacklist, don't waste CPU analyzing it
             if orig_h in blocked_ips:
                 continue
                 
@@ -104,8 +109,11 @@ def tail_and_predict(log_file, model_path, scaler_path):
                 logging.warning(f"   Details: {conn_count} conns, {unique_ports} unique ports, {rej_count} REJ in the last {WINDOW_SIZE}s")
                 logging.warning(f"🛡️  Executing firewall block on IP {orig_h}...")
                 
+                # Command to have the gateway insert an iptables rule on the fly
                 current_dir = os.path.dirname(os.path.abspath(__file__))
                 lab_dir = os.path.join(current_dir, "../../lab")
+                
+                # Block traffic passing through the gateway (FORWARD)
                 cmd_fw = f"cd {lab_dir} && kathara exec gateway -- iptables -I FORWARD -s {orig_h} -j DROP"
                 
                 try:
@@ -118,6 +126,7 @@ def tail_and_predict(log_file, model_path, scaler_path):
                     logging.error(f"❌ Impossible to send iptables command to Kathara.")
 
 if __name__ == "__main__":
+    # Relative paths
     current_dir = os.path.dirname(os.path.abspath(__file__))
     log_path = os.path.join(current_dir, "../../lab/shared/zeek_logs/conn.log")
     model_p = os.path.join(current_dir, "../ml_pipeline/ids_model.pkl")
