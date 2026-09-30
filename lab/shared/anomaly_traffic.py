@@ -100,48 +100,58 @@ def simulate_data_exfiltration(target_ip):
     except Exception:
         pass
 
+import argparse
+
 def main():
-    logging.info("Starting ADVANCED SIMULATED ATTACK (0-days, DoS, Exfiltration)...")
-    
-    logging.info("Phase 1: Port Scan...")
-    with ThreadPoolExecutor(max_workers=20) as executor:
-        for server in SERVERS:
-            for port in PORTS_TO_SCAN:
-                executor.submit(port_scan, server, port)
-                
-    time.sleep(1)
-    
-    logging.info("Phase 2: SSH Brute-Force...")
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        for server in SERVERS:
-            executor.submit(simulate_ssh_bruteforce, server)
-            
-    time.sleep(1)
-            
-    logging.info("Phase 3: Layer 7 Web Attacks (SQLi & XSS)...")
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        for server in SERVERS:
-            executor.submit(simulate_web_attacks, server)
-            
-    time.sleep(1)
-            
-    logging.info("Phase 4: HTTP DDoS Flood...")
-    for server in SERVERS:
-        simulate_ddos(server)
-        
-    time.sleep(1)
-        
-    logging.info("Phase 5: Slowloris (Low & Slow DoS)...")
-    for server in SERVERS:
-        simulate_slowloris(server)
-        
-    time.sleep(1)
-        
-    logging.info("Phase 6: Data Exfiltration (Massive POST)...")
-    for server in SERVERS:
-        simulate_data_exfiltration(server)
-            
-    logging.info("Advanced attack completed.")
+    parser = argparse.ArgumentParser(description="Advanced Attack Simulator")
+    parser.add_argument("--attack", choices=["all", "portscan", "ssh", "web", "ddos", "slowloris", "exfiltration"], default="all", help="Choose the attack type to launch")
+    parser.add_argument("--target", help="Specific target IP (optional, otherwise hits all servers)")
+    args = parser.parse_args()
+
+    targets = [args.target] if args.target else SERVERS
+
+    logging.info(f"Starting ADVANCED SIMULATED ATTACK against {targets}...")
+
+    if args.attack in ["all", "portscan"]:
+        logging.info("Phase 1: Port Scan...")
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            for server in targets:
+                for port in PORTS_TO_SCAN:
+                    executor.submit(port_scan, server, port)
+        time.sleep(1)
+
+    if args.attack in ["all", "ssh"]:
+        logging.info("Phase 2: SSH Brute-Force...")
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            for server in targets:
+                executor.submit(simulate_ssh_bruteforce, server)
+        time.sleep(1)
+
+    if args.attack in ["all", "web"]:
+        logging.info("Phase 3: Layer 7 Web Attacks (SQLi & XSS)...")
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            for server in targets:
+                executor.submit(simulate_web_attacks, server)
+        time.sleep(1)
+
+    if args.attack in ["all", "ddos"]:
+        logging.info("Phase 4: HTTP DDoS Flood...")
+        for server in targets:
+            simulate_ddos(server)
+        time.sleep(1)
+
+    if args.attack in ["all", "slowloris"]:
+        logging.info("Phase 5: Slowloris (Low & Slow DoS)...")
+        for server in targets:
+            simulate_slowloris(server)
+        time.sleep(1)
+
+    if args.attack in ["all", "exfiltration"]:
+        logging.info("Phase 6: Data Exfiltration (Massive POST)...")
+        for server in targets:
+            simulate_data_exfiltration(server)
+
+    logging.info("Attack completed.")
 
 if __name__ == "__main__":
     main()
