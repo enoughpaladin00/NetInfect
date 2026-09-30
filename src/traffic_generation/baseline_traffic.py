@@ -78,4 +78,6 @@ def main():
             time.sleep(random.uniform(2.0, 5.0))
 
 if __name__ == "__main__":
+    logging.info("Waiting 15 seconds for servers to fully boot up...")
+    time.sleep(15)
     main()
