@@ -33,6 +33,12 @@ def tail_and_predict(log_file, model_path, scaler_path, iso_model_path):
     recent_conns = defaultdict(list)
     WINDOW_SIZE = 2.0 # seconds
     
+    # IP Reputation variables (Slow Path)
+    ip_reputation = defaultdict(float)
+    last_seen = defaultdict(float)
+    REPUTATION_THRESHOLD = 100.0
+    DECAY_RATE = 2.0  # Points to decay per second
+    
     logging.info(f"Listening in real-time on file: {log_file}")
     
     alert_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lab/shared/zeek_logs/alerts.csv")
@@ -134,9 +140,26 @@ def tail_and_predict(log_file, model_path, scaler_path, iso_model_path):
             # Predict
             prediction = model.predict(features_stacked)[0]
             
-            if prediction == 1: # Anomaly / Attack (RandomForest outputs 1 for Attack)
+            # --- UPDATE IP REPUTATION (SLOW PATH) ---
+            if orig_h in last_seen:
+                time_passed = current_ts - last_seen[orig_h]
+                decay = time_passed * DECAY_RATE
+                ip_reputation[orig_h] = max(0.0, ip_reputation[orig_h] - decay)
+            last_seen[orig_h] = current_ts
+            
+            # Base penalty for connection
+            ip_reputation[orig_h] += 0.5
+            if is_rej:
+                ip_reputation[orig_h] += 20.0
+            if is_rstr:
+                ip_reputation[orig_h] += 10.0
+                
+            is_reputation_breach = ip_reputation[orig_h] >= REPUTATION_THRESHOLD
+            
+            if prediction == 1 or is_reputation_breach:
+                reason = "ML-IDS Fast Path" if prediction == 1 else f"Reputation Breach ({ip_reputation[orig_h]:.1f}/100)"
                 logging.warning(f"⚠️ ANOMALY DETECTED! Source: {orig_h}")
-                logging.warning(f"   Details: {conn_count} conns, {unique_ports} unique ports, {rej_count} REJ in the last {WINDOW_SIZE}s")
+                logging.warning(f"   Reason: {reason} | {conn_count} conns, {unique_ports} ports, {rej_count} REJ in {WINDOW_SIZE}s")
                 logging.warning(f"🛡️  Executing firewall block on IP {orig_h}...")
                 
                 # Command to have the gateway insert an iptables rule on the fly
@@ -158,10 +181,12 @@ def tail_and_predict(log_file, model_path, scaler_path, iso_model_path):
                             alert_f.write("timestamp,attacker_ip,reason\n")
                     
                     with open(alert_log_path, "a") as alert_f:
-                        alert_f.write(f"{int(time.time())},{orig_h},ML-IDS Hybrid Detection (Conns: {conn_count})\n")
+                        alert_f.write(f"{int(time.time())},{orig_h},{reason}\n")
                         
                     # Clear history for blocked IP to save memory
-                    del recent_conns[orig_h]
+                    if orig_h in recent_conns: del recent_conns[orig_h]
+                    if orig_h in ip_reputation: del ip_reputation[orig_h]
+                    if orig_h in last_seen: del last_seen[orig_h]
                 except subprocess.CalledProcessError:
                     logging.error(f"❌ Impossible to send iptables command to Kathara.")
 
