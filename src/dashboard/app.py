@@ -5,7 +5,7 @@ import os
 import plotly.express as px
 
 # Configurazione base della pagina
-st.set_page_config(page_title="NetInfect IDS Dashboard", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="NetInfect IDS", page_icon=":material/security:", layout="wide")
 
 # Percorsi ai file di log
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -34,25 +34,8 @@ def read_zeek_log(filepath, columns):
     except Exception:
         return pd.DataFrame(columns=columns)
 
-# Layout e Stile CSS personalizzato (Estetica Moderna)
-st.markdown("""
-    <style>
-    .main {background-color: #0E1117;}
-    h1 {color: #00FF41; font-family: 'Courier New', Courier, monospace;}
-    .metric-box {
-        background-color: #1E1E1E;
-        padding: 20px;
-        border-radius: 10px;
-        border-left: 5px solid #00FF41;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.5);
-    }
-    .metric-title {color: #A0A0A0; font-size: 14px;}
-    .metric-value {color: #FFFFFF; font-size: 28px; font-weight: bold;}
-    </style>
-""", unsafe_allow_html=True)
-
-st.title("🛡️ NetInfect - Live Intrusion Detection System")
-st.markdown("Monitoraggio in tempo reale del traffico di rete e rilevamento anomalie (L3, L4, L7)")
+st.title("NetInfect - Live IDS", icon=":material/shield:")
+st.caption("Monitoraggio in tempo reale del traffico di rete e rilevamento anomalie (L3, L4, L7)")
 
 # 1. Carica dati di connessione (Layer 3/4)
 conn_cols = ['ts', 'uid', 'orig_h', 'orig_p', 'resp_h', 'resp_p', 'proto', 'service', 'duration', 'orig_bytes', 'resp_bytes', 'conn_state']
@@ -76,22 +59,23 @@ if not df_alerts.empty:
     latest_alert_time = df_alerts['timestamp'].max()
     current_time = int(time.time())
     if current_time - latest_alert_time < 15:
-        st.error(f"🚨 INTRUSION DETECTED! Un attacco è in corso o è stato appena bloccato. Controlla lo storico in basso.")
+        st.error(f"INTRUSION DETECTED! Un attacco è in corso o è stato appena bloccato. Controlla lo storico in basso.", icon=":material/warning:")
 
 # --- METRICHE IN CIMA ---
-col1, col2, col3, col4 = st.columns(4)
-
 tot_conns = len(df_conn)
 tot_rej = len(df_conn[df_conn['conn_state'] == 'REJ']) if not df_conn.empty else 0
 tot_http = len(df_http)
 unique_ips = df_conn['orig_h'].nunique() if not df_conn.empty else 0
 
-col1.markdown(f'<div class="metric-box"><div class="metric-title">Total Connections (Last 500)</div><div class="metric-value">{tot_conns}</div></div>', unsafe_allow_html=True)
-col2.markdown(f'<div class="metric-box"><div class="metric-title">Unique Source IPs</div><div class="metric-value">{unique_ips}</div></div>', unsafe_allow_html=True)
-col3.markdown(f'<div class="metric-box"><div class="metric-title" style="color: #FF4B4B;">Rejected Conns (Possible Scan)</div><div class="metric-value">{tot_rej}</div></div>', unsafe_allow_html=True)
-col4.markdown(f'<div class="metric-box"><div class="metric-title">HTTP Requests (Layer 7)</div><div class="metric-value">{tot_http}</div></div>', unsafe_allow_html=True)
+with st.container(horizontal=True):
+    st.metric("Total Connections (Last 500)", tot_conns, border=True)
+    st.metric("Unique Source IPs", unique_ips, border=True)
+    # Highlight high rejections
+    rej_delta = "- OK" if tot_rej < 10 else f"{tot_rej} Rej"
+    st.metric("Rejected Conns (Possible Scan)", tot_rej, delta=rej_delta, delta_color="inverse", border=True)
+    st.metric("HTTP Requests (Layer 7)", tot_http, border=True)
 
-st.markdown("---")
+st.space(small=True)
 
 # --- GRAFICI ---
 if not df_conn.empty:
@@ -104,39 +88,45 @@ if not df_conn.empty:
     col_chart1, col_chart2 = st.columns(2)
     
     with col_chart1:
-        st.subheader("Traffico per Porta di Destinazione")
-        fig1 = px.bar(port_counts.head(10), x='Port', y='Count', color='Count', color_continuous_scale='Greens', template='plotly_dark')
-        st.plotly_chart(fig1, use_container_width=True, key="bar_chart")
+        with st.container(border=True):
+            st.subheader("Traffico per Porta", icon=":material/bar_chart:")
+            fig1 = px.bar(port_counts.head(10), x='Port', y='Count', color='Count', color_continuous_scale='Greens', template='plotly_dark')
+            st.plotly_chart(fig1, key="bar_chart")
         
     with col_chart2:
-        st.subheader("Stati della Connessione")
-        state_counts = df_conn['conn_state'].value_counts().reset_index()
-        state_counts.columns = ['State', 'Count']
-        # Se ci sono molti REJ o RSTR, spiccano in rosso
-        fig2 = px.pie(state_counts, names='State', values='Count', template='plotly_dark', hole=0.4)
-        st.plotly_chart(fig2, use_container_width=True, key="pie_chart")
+        with st.container(border=True):
+            st.subheader("Stati della Connessione", icon=":material/pie_chart:")
+            state_counts = df_conn['conn_state'].value_counts().reset_index()
+            state_counts.columns = ['State', 'Count']
+            # Se ci sono molti REJ o RSTR, spiccano in rosso
+            fig2 = px.pie(state_counts, names='State', values='Count', template='plotly_dark', hole=0.4)
+            st.plotly_chart(fig2, key="pie_chart")
 else:
-    st.info("Nessun dato di connessione rilevato. In attesa di traffico...")
-    
+    st.info("Nessun dato di connessione rilevato. In attesa di traffico...", icon=":material/hourglass_empty:")
+
+st.space(small=True)
+
 # --- LOG RAW E ATTACCHI HTTP ---
-st.markdown("---")
-st.subheader("👀 Ultime Richieste HTTP (Monitoraggio Layer 7 WAF)")
-if not df_http.empty:
-    st.dataframe(df_http[['ts', 'orig_h', 'method', 'host', 'uri']].tail(10), use_container_width=True)
-else:
-    st.info("Nessuna richiesta HTTP rilevata.")
-    
+with st.container(border=True):
+    st.subheader("Ultime Richieste HTTP (WAF)", icon=":material/web:")
+    if not df_http.empty:
+        st.dataframe(df_http[['ts', 'orig_h', 'method', 'host', 'uri']].tail(10), hide_index=True, use_container_width=True)
+    else:
+        st.caption("Nessuna richiesta HTTP rilevata.")
+        
+st.space(small=True)
+
 # --- STORICO ATTACCHI (ALERTS) ---
-st.markdown("---")
-st.subheader("🛑 Storico Attacchi e Interventi Firewall")
-if not df_alerts.empty:
-    df_alerts_disp = df_alerts.copy()
-    df_alerts_disp['Time'] = pd.to_datetime(df_alerts_disp['timestamp'], unit='s').dt.strftime('%Y-%m-%d %H:%M:%S')
-    df_alerts_disp = df_alerts_disp[['Time', 'attacker_ip', 'reason']].sort_values(by='Time', ascending=False)
-    st.dataframe(df_alerts_disp, use_container_width=True)
-else:
-    st.success("Nessun attacco rilevato finora. La rete è sicura.")
-    
+with st.container(border=True):
+    st.subheader("Storico Attacchi e Firewall", icon=":material/history:")
+    if not df_alerts.empty:
+        df_alerts_disp = df_alerts.copy()
+        df_alerts_disp['Time'] = pd.to_datetime(df_alerts_disp['timestamp'], unit='s').dt.strftime('%Y-%m-%d %H:%M:%S')
+        df_alerts_disp = df_alerts_disp[['Time', 'attacker_ip', 'reason']].sort_values(by='Time', ascending=False)
+        st.dataframe(df_alerts_disp, hide_index=True, use_container_width=True)
+    else:
+        st.success("Nessun attacco rilevato finora. La rete è sicura.", icon=":material/verified:")
+
 # Aggiorna automaticamente l'app Streamlit ogni 3 secondi
 time.sleep(3)
 st.rerun()

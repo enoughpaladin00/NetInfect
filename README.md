@@ -91,7 +91,7 @@ source .venv/bin/activate
 streamlit run src/dashboard/app.py
 ```
 
-**Step 4: Launch Targeted Attacks (Terminal 5 or Terminal 1)**
+**Step 5: Launch Targeted Attacks (Terminal 5 or Terminal 1)**
 Once you see legitimate traffic flowing on the Dashboard, connect to the attacker machine (WAN zone) to launch your attacks.
 ```bash
 cd lab
