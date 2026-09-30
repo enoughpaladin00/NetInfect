@@ -35,6 +35,9 @@ def tail_and_predict(log_file, model_path, scaler_path, iso_model_path):
     
     logging.info(f"Listening in real-time on file: {log_file}")
     
+    alert_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lab/shared/zeek_logs/alerts.csv")
+    last_alert_mtime = 0
+    
     while not os.path.exists(log_file):
         time.sleep(2)
         
@@ -45,6 +48,17 @@ def tail_and_predict(log_file, model_path, scaler_path, iso_model_path):
         f.seek(0, os.SEEK_END)
         
         while True:
+            # Sync blocked_ips with alerts.csv to support manual unblocking
+            if os.path.exists(alert_log_path):
+                try:
+                    current_mtime = os.path.getmtime(alert_log_path)
+                    if current_mtime > last_alert_mtime:
+                        df_sync = pd.read_csv(alert_log_path)
+                        blocked_ips = set(df_sync['attacker_ip'].tolist())
+                        last_alert_mtime = current_mtime
+                except Exception:
+                    pass
+
             line = f.readline()
             if not line:
                 # If there's nothing new, wait half a second

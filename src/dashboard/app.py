@@ -124,6 +124,16 @@ with st.container(border=True):
         df_alerts_disp['Time'] = pd.to_datetime(df_alerts_disp['timestamp'], unit='s').dt.strftime('%Y-%m-%d %H:%M:%S')
         df_alerts_disp = df_alerts_disp[['Time', 'attacker_ip', 'reason']].sort_values(by='Time', ascending=False)
         st.dataframe(df_alerts_disp, hide_index=True, width="stretch")
+        
+        with st.expander("Sblocca IP Manualmente", icon=":material/lock_open:"):
+            st.caption("Usa questa opzione per rimuovere un IP dalla blacklist e testare nuovamente gli attacchi.")
+            ip_to_unblock = st.selectbox("Seleziona IP da sbloccare", df_alerts['attacker_ip'].unique())
+            if st.button("Sblocca IP", type="primary"):
+                unblock_script = os.path.join(current_dir, "../active_response/unblock_ip.py")
+                os.system(f"python3 {unblock_script} {ip_to_unblock}")
+                st.success(f"IP {ip_to_unblock} sbloccato con successo!", icon=":material/check_circle:")
+                time.sleep(1)
+                st.rerun()
     else:
         st.success("Nessun attacco rilevato finora. La rete è sicura.", icon=":material/verified:")
 
