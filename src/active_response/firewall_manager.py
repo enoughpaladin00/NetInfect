@@ -104,7 +104,7 @@ def tail_and_predict(log_file, model_path, scaler_path):
             # Predict
             prediction = model.predict(features_scaled)[0]
             
-            if prediction == -1: # Anomaly
+            if prediction == 1: # Anomaly / Attack (RandomForest outputs 1 for Attack)
                 logging.warning(f"⚠️ ANOMALY DETECTED! Source: {orig_h}")
                 logging.warning(f"   Details: {conn_count} conns, {unique_ports} unique ports, {rej_count} REJ in the last {WINDOW_SIZE}s")
                 logging.warning(f"🛡️  Executing firewall block on IP {orig_h}...")
