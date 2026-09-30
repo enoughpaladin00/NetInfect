@@ -44,7 +44,7 @@ def feature_engineering(df):
     df = df.sort_values('ts_datetime')
     
     # Aggregation
-    grouped = df.groupby(['id.orig_h', pd.Grouper(key='ts_datetime', freq='2S')]).agg(
+    grouped = df.groupby(['id.orig_h', pd.Grouper(key='ts_datetime', freq='2s')]).agg(
         conn_count=('id.resp_p', 'count'),
         unique_ports=('id.resp_p', 'nunique'),
         rej_count=('is_rej', 'sum'),
