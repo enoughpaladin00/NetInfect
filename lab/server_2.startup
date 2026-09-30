@@ -3,3 +3,4 @@ route add default gw 192.168.30.254
 
 # Avvio servizi
 /etc/init.d/ssh start
+/etc/init.d/apache2 start

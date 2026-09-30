@@ -34,6 +34,10 @@ def tail_and_predict(log_file, model_path, scaler_path, iso_model_path):
     WINDOW_SIZE = 2.0 # seconds
     
     logging.info(f"Listening in real-time on file: {log_file}")
+    
+    while not os.path.exists(log_file):
+        time.sleep(2)
+        
     logging.info("Waiting for new traffic...")
     
     with open(log_file, 'r') as f:
