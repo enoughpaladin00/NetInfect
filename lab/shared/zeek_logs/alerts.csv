@@ -1,2 +1,5 @@
 timestamp,attacker_ip,reason
 1790780707,192.168.10.100,ML-IDS Hybrid Detection (Conns: 6)
+1790781474,192.168.10.100,WAF: SQL Injection (/login?user=1' OR '1'='1)
+1790781476,192.168.10.100,ML-IDS Hybrid Detection (Conns: 6)
+1790781555,192.168.10.100,WAF: SQL Injection (/login?user=1' OR '1'='1)

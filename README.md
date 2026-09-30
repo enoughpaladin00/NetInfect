@@ -6,11 +6,11 @@ An end-to-end, Software-Defined Networking (SDN) style Intrusion Detection Syste
 
 ## 🏗 Architecture
 
-The virtual laboratory consists of a simple corporate topology:
-- **`gateway`**: The central router equipped with Zeek (Network Security Monitor) and `iptables`.
-- **`server_1` & `server_2`**: Internal web/SSH servers.
-- **`client_1` & `client_2`**: Internal workstations generating normal background traffic.
-- **`quarantine`**: An isolated network segment for potential future use.
+The virtual laboratory mimics a realistic enterprise architecture with three zones:
+- **`gateway`**: The central router connecting the zones, equipped with Zeek (Network Security Monitor) and `iptables`.
+- **DMZ Network (`server_1`, `server_2`)**: Publicly accessible web and SSH servers.
+- **LAN Network (`client_1`, `client_2`)**: Internal corporate workstations generating normal background traffic.
+- **WAN Network (`attacker`)**: An external host outside the corporate network used to launch malicious campaigns.
 
 ## ✨ Features (Version 2.0)
 
@@ -87,10 +87,10 @@ python3 src/active_response/http_analyzer.py &
 ```
 
 **Step 5: Generate Attack Traffic**
-Trigger the attack from the client:
+Trigger the attack from the external attacker machine:
 ```bash
 cd lab
-kathara connect client_1
+kathara connect attacker
 python3 /shared/anomaly_traffic.py
 ```
 *Watch the Streamlit Dashboard and the Firewall terminal as the attacks are detected and blocked in real-time!*

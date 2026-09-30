@@ -1,15 +1,15 @@
 ifconfig eth0 192.168.10.254 netmask 255.255.255.0 up
-ifconfig eth1 192.168.20.254 netmask 255.255.255.0 up
+ifconfig eth1 192.168.30.254 netmask 255.255.255.0 up
+ifconfig eth2 203.0.113.254 netmask 255.255.255.0 up
 
-# Impostiamo eth0 (Vulnerable Net) in promiscuous mode per permettere a Zeek di "sentire" tutto il traffico del collision domain
-ip link set eth0 promisc on
+# Abilitiamo l'IP forwarding
+sysctl -w net.ipv4.ip_forward=1
 
-# Isoliamo la rete di quarantena (nessun routing verso la rete vulnerabile)
-iptables -A FORWARD -s 192.168.20.0/24 -d 192.168.10.0/24 -j DROP
-iptables -A FORWARD -s 192.168.10.0/24 -d 192.168.20.0/24 -j DROP
+# Isoliamo LAN da WAN per simulare una vera architettura
+# ma permettiamo da DMZ e WAN l'accesso ai server.
 
 # Configurazione e Avvio Zeek
-# I log verranno salvati nella cartella condivisa così da poterli leggere dal Mac o da altri script
 mkdir -p /shared/zeek_logs
 cd /shared/zeek_logs
-nohup zeek -i eth0 > /var/log/zeek_sys.log 2>&1 &
+# 'any' interface lets Zeek listen to all traffic crossing the gateway
+nohup zeek -i any > /var/log/zeek_sys.log 2>&1 &

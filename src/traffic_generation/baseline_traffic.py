@@ -9,7 +9,7 @@ import urllib.error
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # IP addresses of the vulnerable servers
-SERVERS = ["192.168.10.10", "192.168.10.11"]
+SERVERS = ["192.168.30.10", "192.168.30.11"]
 URIS = ["/", "/index.html", "/about", "/contact", "/api/v1/status", "/images/logo.png"]
 
 def simulate_http_browsing(target_ip):

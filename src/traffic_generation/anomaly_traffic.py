@@ -9,7 +9,7 @@ import threading
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-SERVERS = ["192.168.10.10", "192.168.10.11"]
+SERVERS = ["192.168.30.10", "192.168.30.11"]
 PORTS_TO_SCAN = [21, 22, 23, 80, 443, 445, 8080, 3306]
 
 def port_scan(target_ip, port):
