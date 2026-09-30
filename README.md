@@ -16,12 +16,12 @@ The virtual laboratory consists of a simple corporate topology:
 
 1. **Realistic Traffic Generation (`baseline_traffic.py`)**: Simulates human-like HTTP and SSH connections to the servers to build a "clean" dataset.
 2. **Network Monitoring**: The gateway runs Zeek to sniff the `eth0` interface and log all connections to `conn.log`.
-3. **Attack Simulation (`anomaly_traffic.py`)**: A controlled script that performs rapid port scanning and SSH brute-force attacks.
-4. **Supervised Machine Learning Pipeline (`train_ids.py`)**: Uses Scikit-Learn's `RandomForestClassifier` with time-based windowing (2-second aggregation) and `StandardScaler` to detect L3/L4 network anomalies (e.g., Port Scans, DoS) with high accuracy.
+3. **Advanced Attack Simulation (`anomaly_traffic.py`)**: A controlled script that performs multi-stage attacks including Port Scanning, SSH Brute-force, L7 Web Attacks, HTTP DDoS, Slowloris, and Data Exfiltration.
+4. **Hybrid Machine Learning Pipeline (`train_ids.py`)**: A state-of-the-art Ensemble architecture that uses **Feature Stacking**. It first evaluates traffic with an Unsupervised model (**Isolation Forest**) to generate an anomaly score, and then feeds that score alongside L3/L4 features into a Supervised model (**Random Forest** with `class_weight='balanced'`) to achieve near-perfect detection of Zero-Day and DoS attacks.
 5. **Layer 7 WAF (Web Application Firewall) (`http_analyzer.py`)**: Analyzes Zeek's `http.log` using Regex signatures to instantly detect and block web attacks such as SQL Injections, XSS, and Path Traversal.
 6. **Real-Time Streamlit Dashboard (`app.py`)**: A modern, live-updating graphical interface to visualize network traffic, connections per port, blocked IPs, and real-time WAF alerts.
-7. **Universal PCAP Offline Analysis (`analyze_pcap.py`)**: Don't want to run the full Kathara lab? No problem. Feed any `.pcap` file to the analyzer, and it will use a lightweight Zeek Docker container to extract logs and run the ML and L7 pipelines offline.
-8. **Active Response (`firewall_manager.py`)**: A real-time controller that tails Zeek logs, passes live data to the trained ML model, and dynamically injects `iptables` rules into the Kathara gateway to drop traffic from attacker IPs.
+7. **Universal PCAP Offline Analysis (`analyze_pcap.py`)**: Don't want to run the full Kathara lab? No problem. Feed any `.pcap` file to the analyzer, and it will use a lightweight Zeek Docker container to extract logs and run the Hybrid ML and L7 pipelines offline.
+8. **Active Response (`firewall_manager.py`)**: A real-time controller that tails Zeek logs, passes live data to the trained Hybrid ML models, and dynamically injects `iptables` rules into the Kathara gateway to drop traffic from attacker IPs.
 
 ---
 
