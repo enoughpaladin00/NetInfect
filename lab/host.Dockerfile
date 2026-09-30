@@ -2,7 +2,7 @@ FROM kathara/base
 
 # Aggiorniamo e installiamo Python3 e pip
 RUN apt-get update && \
-    apt-get install -y python3 python3-pip curl && \
+    apt-get install -y python3 python3-pip curl apache2 openssh-server && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
