@@ -1,152 +1,155 @@
-# NetInfect - ML-Driven Network Intrusion Detection System (V2)
+# NetInfect – ML-driven network IDS with active response
 
-An end-to-end, Software-Defined Networking (SDN) style Intrusion Detection System (IDS) and Active Response firewall. This project uses **Kathara** (Docker-based network emulation) to simulate a corporate network, **Zeek** for deep packet inspection, and **Supervised Machine Learning (Random Forest)** to detect and block attacks in real-time.
+NetInfect is a lab project that detects attacks on an emulated enterprise network and blocks the attackers automatically. It runs on **Kathará** (Docker-based network emulation), uses **Zeek** as the network sensor, a hybrid **Isolation Forest → Random Forest** model for L3/L4 detection, signature rules for L7, and `iptables` on the gateway for the response.
 
----
-
-## 🏗 Architecture
-
-The virtual laboratory mimics a realistic enterprise architecture with three zones:
-- **`gateway`**: The central router connecting the zones, equipped with Zeek (Network Security Monitor) and `iptables`.
-- **DMZ Network (`server_1`, `server_2`)**: Publicly accessible web and SSH servers.
-- **LAN Network (`client_1`, `client_2`)**: Internal corporate workstations generating normal background traffic.
-- **WAN Network (`attacker`)**: An external host outside the corporate network used to launch malicious campaigns.
-
-## ✨ Features (Version 2.0)
-
-1. **Realistic Traffic Generation (`baseline_traffic.py`)**: Simulates human-like HTTP and SSH connections to the servers to build a "clean" dataset.
-2. **Network Monitoring**: The gateway runs Zeek to sniff the `eth0` interface and log all connections to `conn.log`.
-3. **Advanced Attack Simulation (`anomaly_traffic.py`)**: A controlled script that performs multi-stage attacks including Port Scanning, SSH Brute-force, L7 Web Attacks, HTTP DDoS, Slowloris, and Data Exfiltration.
-4. **Hybrid Machine Learning Pipeline (`train_ids.py`)**: A state-of-the-art Ensemble architecture that uses **Feature Stacking**. It first evaluates traffic with an Unsupervised model (**Isolation Forest**) to generate an anomaly score, and then feeds that score alongside L3/L4 features into a Supervised model (**Random Forest** with `class_weight='balanced'`) to achieve near-perfect detection of Zero-Day and DoS attacks.
-5. **Layer 7 WAF (Web Application Firewall) (`http_analyzer.py`)**: Analyzes Zeek's `http.log` using Regex signatures to instantly detect and block web attacks such as SQL Injections, XSS, and Path Traversal.
-6. **Real-Time Streamlit Dashboard (`app.py`)**: A modern, live-updating graphical interface to visualize network traffic, connections per port, blocked IPs, and real-time WAF alerts.
-7. **Universal PCAP Offline Analysis (`analyze_pcap.py`)**: Don't want to run the full Kathara lab? No problem. Feed any `.pcap` file to the analyzer, and it will use a lightweight Zeek Docker container to extract logs and run the Hybrid ML and L7 pipelines offline.
-8. **Active Response (`firewall_manager.py`)**: A real-time controller that tails Zeek logs, passes live data to the trained Hybrid ML models, and dynamically injects `iptables` rules into the Kathara gateway to drop traffic from attacker IPs.
+It is a learning sandbox, not a production IDS: the traffic is synthetic and the results below describe this lab only. The [Limitations](#limitations) section says what that means.
 
 ---
 
-## 🚀 Prerequisites
+## Architecture
 
-Ensure you have the following installed on your machine:
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Required for both Kathara and Offline PCAP Analysis)
-- [Kathara](https://github.com/KatharaFramework/Kathara) (Only required for the live lab)
-- Python 3.10+
-- Git
-
----
-
-## 🛠 Setup & Installation
-
-1. **Clone the repository:**
-   ```bash
-   git clone <your-repo-url>
-   cd Side_Project
-   ```
-
-2. **Set up the Python Virtual Environment:**
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
-
----
-
-## 🎮 Usage Guide
-
-### Option A: The Live Lab (Kathara)
-
-**Step 1: Start the Laboratory (Terminal 1)**
-Start the network simulation. The clients will wait 30 seconds to allow the servers to fully boot, and then they will automatically begin generating normal background traffic.
-```bash
-cd lab
-kathara lstart
+```
+ WAN (attacker)  ──┐
+                   │      gateway: router + Zeek + iptables
+ DMZ (2 servers) ──┼──►   conn.log ──► ML firewall (fast path + reputation) ──┐
+                   │      http.log ──► L7 signatures ─────────────────────────┼──► iptables DROP (with TTL)
+ LAN (2 clients) ──┘                                                          └──► alerts.csv ──► dashboard
 ```
 
-**Step 2: Train the Machine Learning Model**
-The repository comes with a pre-trained model. If you wish to retrain it using the `baseline.log` and `pure_attack.log` found in `lab/shared/zeek_logs/`, run:
-```bash
-source .venv/bin/activate
-python3 src/ml_pipeline/train_ids.py
-```
-*(Note: Wait until Kathara finishes deploying all devices before proceeding to the next steps)*
+- **gateway**: routes between LAN, DMZ and WAN and runs Zeek on all interfaces.
+- **DMZ** (`server_1`, `server_2`): web and SSH servers.
+- **LAN** (`client_1`, `client_2`): workstations generating background traffic (`baseline_traffic.py`).
+- **WAN** (`attacker`): runs the attack simulator (`anomaly_traffic.py`): port scan, SSH brute force (simulated at the connection level), SQLi/XSS/path traversal, HTTP flood, Slowloris and a large upload.
 
-**Step 3: Start the Firewalls (L3/L4 ML and L7 WAF) (Terminal 2 & 3)**
-The firewalls will automatically wait for Zeek to generate the logs if they haven't been created yet.
+## How detection works
+
+**Features** (`src/ml_pipeline/features.py`). For every connection in Zeek's `conn.log`, NetInfect looks at the connections opened by the same source IP in the previous 2 seconds and computes 9 features: connection count, distinct destination ports, rejected (REJ) and reset (RSTR) connections, total duration, bytes sent and received, their ratio, and average duration. Training, live detection and offline PCAP analysis share this code, so the model sees the same features in production as in training.
+
+**Model** (`src/ml_pipeline/train_ids.py`).
+1. An **Isolation Forest** is fitted on benign traffic only. Its score says how unlike normal traffic a window is, without needing labels.
+2. That score is added as a 10th feature to a **Random Forest** (`class_weight='balanced'`) trained on labelled benign and attack traffic.
+
+The Isolation Forest alone flags too much benign traffic (see results); the Random Forest is what makes the alerts precise. Tree models do not need feature scaling, so there is no scaler.
+
+**Response** (`src/active_response/`).
+- **Fast path (ML)**: attack probability ≥ 0.9 → block the source IP; between 0.5 and 0.9 → alert only, logged to `detections.csv` for an analyst.
+- **Slow path (reputation)**: a per-IP score that grows with every connection (more for rejected or reset ones) and decays by 2 points per second; at 100 the IP is blocked. It catches activity spread over more than the 2-second window.
+- **L7 signatures** (`waf_rules.py`): SQLi, XSS and path-traversal rules on the URI in `http.log`, after repeated URL decoding (so double encoding does not hide a payload).
+- **Safety of the response** (`response.py`): blocks expire after 15 minutes (`NETINFECT_BLOCK_TTL`), addresses in `config/allowlist.txt` are never blocked, a repeated detection renews the block instead of adding duplicate rules, IPs are validated and commands are run without a shell, and the blocklist is written with proper CSV quoting under a file lock.
+- **Model integrity** (`model_store.py`): pickle files execute code when loaded, so models are only loaded if they match the SHA-256 hashes in `model_manifest.json`.
+
+## Results
+
+From `reports/evaluation.md`, regenerated by every training run. Unit: one connection. Split: **temporal** (first 70% of each capture for training, the rest for testing), so neighbouring windows of the same attack cannot be on both sides.
+
+| Level | Precision | Recall | F1 | False alarms / hour |
+|---|---|---|---|---|
+| Alert (p ≥ 0.5) | 1.00 | 0.986 | 0.993 | 0 |
+| Block (p ≥ 0.9) | 1.00 | 0.957 | 0.978 | 0 |
+
+**Leave-one-attack-out**: each attack type is removed from training and used only for testing. Recall on the unseen type is between 0.83 (web attacks) and 1.00, with a benign false positive rate of about 0.5%.
+
+**Read these numbers with care.** A one-line rule with no ML (`conn_count >= 3` in 2 seconds) already reaches F1 0.988 on the same test set: the simulated users never open more than 2 connections in 2 seconds, while almost every attack is a burst. The dataset is too easy to show what the model adds. Making the benign traffic realistic is the most important next step.
+
+## Limitations
+
+- **Synthetic, easy data.** Both benign and attack traffic come from this project's scripts. The attack capture is three runs of the same script, so the test set is very close to the training set.
+- **Not fully real time.** Zeek writes a `conn.log` record when a connection ends, so long connections (Slowloris, large transfers) are scored only after they close.
+- **A single rejected connection can be enough to block.** No benign traffic in the training data ever hits a closed port, so the model learnt that REJ means attack. A real user mistyping a port would be blocked for 15 minutes.
+- **The L7 part detects; it does not prevent.** It reads `http.log` after the request has reached the server, so the first malicious request gets through. It only inspects the URI (no POST body, headers or cookies) and cannot see HTTPS unless TLS is terminated before the sensor. An inline WAF (e.g. ModSecurity with the OWASP CRS) and fixing the application (parameterised queries, output encoding) are the real defences.
+- **Blocking by source IP** can be abused or bypassed: with spoofed packets an attacker can get legitimate IPs blocked, one IP behind NAT can stand for many users, and a botnet spreads over many IPs.
+- **Evasion.** Attacks slower than the windows and the reputation decay (e.g. one port every 10 seconds) stay below the thresholds, and an attacker who knows the features can shape traffic to look benign. If the model were retrained on live traffic, it could also be poisoned.
+- **Sensor position.** Zeek on the gateway sees traffic between zones, not lateral movement inside the LAN.
+- **The "data exfiltration" phase** is a large upload from the attacker to a server (inbound). Real exfiltration starts from a compromised internal host and goes outbound.
+- **The model integrity check** catches a swapped or corrupted file, but an attacker who can write to the model folder can also rewrite the manifest. A signed manifest or a non-executable model format (skops, ONNX) would close that gap.
+
+## Next steps
+
+- Realistic benign traffic (more users, bursts, background services) or a public dataset (CIC-IDS2017, UNSW-NB15) to see whether the model beats simple rules.
+- Simulate a compromised LAN host for lateral movement and real outbound exfiltration.
+- Score long connections while they are still open (Zeek scripting on connection events).
+- Adversarial evaluation: train with attacks that mimic benign feature distributions.
+
+---
+
+## Setup
+
+Requirements: [Docker Desktop](https://www.docker.com/products/docker-desktop/), [Kathará](https://github.com/KatharaFramework/Kathara) (only for the live lab), Python 3.10+.
+
 ```bash
-# Terminal 2 - ML Firewall
+git clone https://github.com/enoughpaladin00/NetInfect.git
+cd NetInfect
+python3 -m venv .venv
 source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+## Usage
+
+### Live lab (Kathará)
+
+On macOS, `./start.sh` opens the four terminals below for you and `./stop.sh` closes them.
+
+```bash
+# Terminal 1 – start the lab (clients start generating traffic after ~30 s)
+cd lab && kathara lstart
+
+# Terminal 2 – ML firewall (L3/L4)
 python3 src/active_response/firewall_manager.py
-```
-```bash
-# Terminal 3 - L7 WAF
-source .venv/bin/activate
-python3 src/active_response/http_analyzer.py
-```
 
-**Step 4: Launch the Visual Dashboard (Terminal 4)**
-Open a new terminal and run:
-```bash
-source .venv/bin/activate
+# Terminal 3 – L7 signatures
+python3 src/active_response/http_analyzer.py
+
+# Terminal 4 – dashboard
 streamlit run src/dashboard/app.py
 ```
 
-**Step 5: Launch Targeted Attacks (Terminal 5 or Terminal 1)**
-Once you see legitimate traffic flowing on the Dashboard, connect to the attacker machine (WAN zone) to launch your attacks.
-```bash
-cd lab
-kathara connect attacker
-```
-You can now select which specific attack vector to execute using the `--attack` flag:
-```bash
-# View help menu
-python3 /shared/anomaly_traffic.py --help
-
-# Launch specific attacks
-python3 /shared/anomaly_traffic.py --attack web        # SQLi & XSS
-python3 /shared/anomaly_traffic.py --attack portscan   # Port Scanning
-python3 /shared/anomaly_traffic.py --attack ddos       # HTTP Flood DoS
-python3 /shared/anomaly_traffic.py --attack slowloris  # Slowloris DoS
-
-# Launch all attacks sequentially
-python3 /shared/anomaly_traffic.py
-```
-*Watch the Streamlit Dashboard and the Firewall terminals as the attacks are detected and blocked in real-time!*
-
----
-
-### Option B: Universal PCAP Offline Analysis
-
-You can analyze any existing network capture (`.pcap`) without starting Kathara. This script spins up a temporary Zeek Docker container to extract logs and feeds them to the ML model and WAF.
+Launch attacks from the attacker machine:
 
 ```bash
-source .venv/bin/activate
-python3 src/pcap_analyzer/analyze_pcap.py <path_to_your_file.pcap>
+cd lab && kathara connect attacker
+python3 /shared/anomaly_traffic.py --attack portscan   # or ssh, web, ddos, slowloris, exfiltration
+python3 /shared/anomaly_traffic.py                     # all phases in sequence
 ```
 
----
+Unblock an IP manually from the dashboard or with `python3 src/active_response/unblock_ip.py <ip>`.
 
-## 📂 Project Structure
+### Retrain and evaluate
+
+The repository ships a trained model. To retrain it you need two Zeek `conn.log` captures in `lab/shared/zeek_logs/` (they are not committed): `baseline.log`, recorded with only the clients running, and `test_attack.log`, recorded while only the attacker runs `anomaly_traffic.py`.
+
+```bash
+python3 src/ml_pipeline/train_ids.py      # writes the models, model_manifest.json and reports/
+```
+
+### Offline PCAP analysis
+
+Runs Zeek in a temporary Docker container, then the same ML model and L7 rules.
+
+```bash
+python3 src/pcap_analyzer/analyze_pcap.py <file.pcap>
+```
+
+### Tests
+
+```bash
+pip install pytest
+python3 -m pytest tests
+```
+
+## Project structure
 
 ```
 .
-├── lab/
-│   ├── lab.conf               # Kathara network topology definition
-│   ├── gateway.Dockerfile     # Zeek-enabled router image
-│   ├── host.Dockerfile        # Python-enabled host image
-│   ├── *.startup              # Boot scripts for network nodes
-│   └── shared/                # Volume shared between Host and Containers
-│       └── zeek_logs/         # Zeek logs output directory
+├── config/allowlist.txt        # addresses that are never blocked
+├── lab/                        # Kathará topology, Dockerfiles, startup scripts
+│   └── shared/zeek_logs/       # Zeek output, alerts.csv (active blocklist)
+├── reports/                    # evaluation report generated by train_ids.py
 ├── src/
-│   ├── traffic_generation/    # Scripts to generate baseline and malicious traffic
-│   ├── ml_pipeline/           # Random Forest training and data aggregation
-│   ├── active_response/       # L3/L4 ML Firewall and L7 Regex WAF
-│   ├── dashboard/             # Real-time Streamlit UI
-│   └── pcap_analyzer/         # Offline PCAP analysis using Zeek Docker
-├── requirements.txt           # Python dependencies
-└── README.md
+│   ├── ml_pipeline/            # features, training/evaluation, model store
+│   ├── active_response/        # ML firewall, L7 signatures, shared response logic
+│   ├── dashboard/              # Streamlit UI
+│   ├── pcap_analyzer/          # offline analysis
+│   └── traffic_generation/     # benign and attack traffic generators
+└── tests/                      # unit tests for rules, response safety and models
 ```
-
----
-
-*Disclaimer: This project is an educational sandbox designed to demonstrate the integration of Software-Defined Networking, Machine Learning, and active defense mechanisms.*

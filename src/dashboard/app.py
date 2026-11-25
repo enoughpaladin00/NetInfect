@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import time
 import os
+import subprocess
+import sys
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -187,12 +189,17 @@ def render_dashboard():
                     if not df_alerts.empty:
                         df_d = df_alerts.copy()
                         df_d['Time'] = pd.to_datetime(df_d['timestamp'], unit='s').dt.strftime('%H:%M:%S')
-                        st.dataframe(df_d[['Time', 'attacker_ip', 'reason']].sort_values(by='Time', ascending=False), hide_index=True)
+                        if 'expires_at' in df_d.columns:
+                            df_d['Expires'] = pd.to_datetime(pd.to_numeric(df_d['expires_at'], errors='coerce'), unit='s').dt.strftime('%H:%M:%S')
+                        else:
+                            df_d['Expires'] = ''
+                        st.dataframe(df_d[['Time', 'Expires', 'attacker_ip', 'reason']].sort_values(by='Time', ascending=False), hide_index=True)
                         with st.expander("Sblocca IP Manualmente", icon=":material/lock_open:"):
                             ip_to_unblock = st.selectbox("Seleziona IP", df_alerts['attacker_ip'].unique())
                             if st.button("Sblocca IP", type="primary"):
                                 unblock_script = os.path.join(current_dir, "../active_response/unblock_ip.py")
-                                os.system(f"python3 {unblock_script} {ip_to_unblock}")
+                                # Argument list, no shell: the IP comes from a file and is validated by unblock_ip.py
+                                subprocess.run([sys.executable, unblock_script, str(ip_to_unblock)], check=False)
                                 st.success(f"IP {ip_to_unblock} sbloccato!")
                                 time.sleep(1)
                                 st.rerun()
