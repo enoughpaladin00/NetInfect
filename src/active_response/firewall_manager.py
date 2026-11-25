@@ -1,205 +1,129 @@
 #!/usr/bin/env python3
-import time
-import os
-import pandas as pd
-import joblib
+"""
+L3/L4 active response: tails Zeek's conn.log, scores each connection with the
+hybrid model and blocks source IPs on the Kathara gateway.
+
+Two detection paths:
+  * Fast path (ML): attack probability over a 2 s sliding window per source IP.
+      - probability >= block threshold -> block the IP (with a TTL)
+      - alert threshold <= probability < block threshold -> alert only, for an analyst
+  * Slow path (reputation): a per-IP score that grows with every connection
+    (more for rejected/reset ones) and decays over time. It catches activity
+    spread over longer than the 2 s window.
+
+Limitation: Zeek writes a conn.log record when a connection ends, so long
+connections (Slowloris, large transfers) are only scored after they close.
+"""
 import logging
-import subprocess
-import warnings
+import os
+import sys
+import time
 from collections import defaultdict
 
-warnings.filterwarnings("ignore")
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "../ml_pipeline"))
+sys.path.insert(0, HERE)
+from features import FEATURES, SlidingWindow  # noqa: E402
+from model_store import ModelIntegrityError, load_models, score  # noqa: E402
+import response  # noqa: E402
 
-def tail_and_predict(log_file, model_path, scaler_path, iso_model_path):
-    """
-    Reads the conn.log file in real-time, maintains a 2-second rolling window 
-    per IP, evaluates it using the HYBRID ML model, and updates iptables.
-    """
-    logging.info("Loading Machine Learning models (Hybrid) and Scaler...")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
+
+CONN_LOG = os.path.join(response.LOG_DIR, "conn.log")
+
+# Slow path (reputation) parameters
+REPUTATION_THRESHOLD = 100.0
+DECAY_RATE = 2.0        # points lost per second
+CONN_PENALTY = 0.5
+REJ_PENALTY = 20.0
+RSTR_PENALTY = 10.0
+
+HOUSEKEEPING_EVERY = 5.0  # seconds between blocklist sync / TTL expiry
+
+
+def parse_conn_line(line):
+    parts = line.rstrip("\n").split("\t")
+    if len(parts) < 12:
+        return None
+    ts, _, orig_h, _, _, resp_p, _, _, duration, orig_bytes, resp_bytes, conn_state = parts[:12]
+
+    def num(v):
+        return 0.0 if v == "-" else float(v)
+
     try:
-        model = joblib.load(model_path)
-        scaler = joblib.load(scaler_path)
-        iso_model = joblib.load(iso_model_path)
-    except Exception as e:
-        logging.error(f"Error loading model/scaler: {e}")
-        return
+        return orig_h, float(ts), int(resp_p), conn_state, num(duration), num(orig_bytes), num(resp_bytes)
+    except ValueError:
+        return None
 
-    # Keep track of IPs we have already blocked to avoid flooding the gateway with iptables rules.
-    blocked_ips = set()
-    
-    # Dictionary to keep a rolling window of recent connections per IP.
-    # Format: { 'ip_address': [ (ts, resp_p, is_rej, is_rstr, duration, orig_bytes, resp_bytes), ... ] }
-    recent_conns = defaultdict(list)
-    WINDOW_SIZE = 2.0 # seconds
-    
-    # IP Reputation variables (Slow Path)
-    ip_reputation = defaultdict(float)
-    last_seen = defaultdict(float)
-    REPUTATION_THRESHOLD = 100.0
-    DECAY_RATE = 2.0  # Points to decay per second
-    
-    logging.info(f"Listening in real-time on file: {log_file}")
-    
-    alert_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../lab/shared/zeek_logs/alerts.csv")
-    last_alert_mtime = 0
-    
-    while not os.path.exists(log_file):
+
+def main():
+    try:
+        iso, rf, manifest = load_models()
+    except (FileNotFoundError, ModelIntegrityError) as e:
+        logging.error(e)
+        sys.exit(1)
+    if manifest["features"] != FEATURES:
+        logging.error("The saved model was trained on different features: retrain it.")
+        sys.exit(1)
+    alert_t, block_t = manifest["alert_threshold"], manifest["block_threshold"]
+
+    allowlist = response.load_allowlist()
+    window = SlidingWindow(manifest["window_size_s"])
+    reputation, last_seen = defaultdict(float), {}
+    blocked = response.active_blocks()
+    last_housekeeping = 0.0
+
+    logging.info(f"Model loaded (alert >= {alert_t}, block >= {block_t}). Waiting for {CONN_LOG}...")
+    while not os.path.exists(CONN_LOG):
         time.sleep(2)
-        
-    logging.info("Waiting for new traffic...")
-    
-    with open(log_file, 'r') as f:
-        # Move the pointer to the END of the file to only analyze new events
-        f.seek(0, os.SEEK_END)
-        
+
+    with open(CONN_LOG) as f:
+        f.seek(0, os.SEEK_END)  # only new connections
+        logging.info("Listening for new connections...")
         while True:
-            # Sync blocked_ips with alerts.csv to support manual unblocking
-            if os.path.exists(alert_log_path):
-                try:
-                    current_mtime = os.path.getmtime(alert_log_path)
-                    if current_mtime > last_alert_mtime:
-                        df_sync = pd.read_csv(alert_log_path)
-                        blocked_ips = set(df_sync['attacker_ip'].tolist())
-                        last_alert_mtime = current_mtime
-                except Exception:
-                    pass
+            now = time.time()
+            if now - last_housekeeping > HOUSEKEEPING_EVERY:
+                response.expire_blocks()
+                blocked = response.active_blocks()  # picks up manual unblocks and expiries
+                last_housekeeping = now
 
             line = f.readline()
             if not line:
-                # If there's nothing new, wait half a second
                 time.sleep(0.5)
                 continue
-                
-            if line.startswith('#'):
+            if line.startswith("#"):
                 continue
-                
-            parts = line.strip().split('\t')
-            if len(parts) < 21:
+            conn = parse_conn_line(line)
+            if conn is None:
                 continue
-                
-            # Extract values from Zeek columns (standard position)
-            ts, _, orig_h, _, _, resp_p, _, _, duration, orig_bytes, resp_bytes, conn_state = parts[:12]
-            
-            # If the IP is already in our blacklist, don't waste CPU analyzing it
-            if orig_h in blocked_ips:
+            src, ts, port, state, dur, ob, rb = conn
+            if src in blocked:
                 continue
-                
-            try:
-                current_ts = float(ts)
-                resp_p = int(resp_p)
-                duration = float(duration) if duration != '-' else 0.0
-                orig_bytes = float(orig_bytes) if orig_bytes != '-' else 0.0
-                resp_bytes = float(resp_bytes) if resp_bytes != '-' else 0.0
-                is_rej = 1 if conn_state == 'REJ' else 0
-                is_rstr = 1 if conn_state == 'RSTR' else 0
-            except ValueError:
-                continue # Skip malformed lines
-                
-            # Add new connection to the history
-            recent_conns[orig_h].append((current_ts, resp_p, is_rej, is_rstr, duration, orig_bytes, resp_bytes))
-            
-            # Remove connections outside the 2-second window
-            recent_conns[orig_h] = [
-                conn for conn in recent_conns[orig_h] 
-                if conn[0] >= current_ts - WINDOW_SIZE
-            ]
-            
-            # Calculate aggregated features for the current window
-            window = recent_conns[orig_h]
-            conn_count = len(window)
-            unique_ports = len(set(conn[1] for conn in window))
-            rej_count = sum(conn[2] for conn in window)
-            rstr_count = sum(conn[3] for conn in window)
-            total_duration = sum(conn[4] for conn in window)
-            total_orig_bytes = sum(conn[5] for conn in window)
-            total_resp_bytes = sum(conn[6] for conn in window)
-            bytes_ratio = total_orig_bytes / (total_resp_bytes + 1)
-            avg_duration = total_duration / (conn_count + 0.001)
-            
-            features = pd.DataFrame([{
-                'conn_count': conn_count,
-                'unique_ports': unique_ports,
-                'rej_count': rej_count,
-                'rstr_count': rstr_count,
-                'total_duration': total_duration,
-                'total_orig_bytes': total_orig_bytes,
-                'total_resp_bytes': total_resp_bytes,
-                'bytes_ratio': bytes_ratio,
-                'avg_duration': avg_duration
-            }])
-            
-            # Scale features
-            features_scaled = scaler.transform(features)
-            
-            # Feature Stacking: Unsupervised -> Supervised
-            import numpy as np
-            anomaly_score = iso_model.decision_function(features_scaled).reshape(-1, 1)
-            features_stacked = np.hstack((features_scaled, anomaly_score))
-            
-            # Predict
-            prediction = model.predict(features_stacked)[0]
-            
-            # --- UPDATE IP REPUTATION (SLOW PATH) ---
-            if orig_h in last_seen:
-                time_passed = current_ts - last_seen[orig_h]
-                decay = time_passed * DECAY_RATE
-                ip_reputation[orig_h] = max(0.0, ip_reputation[orig_h] - decay)
-            last_seen[orig_h] = current_ts
-            
-            # Base penalty for connection
-            ip_reputation[orig_h] += 0.5
-            if is_rej:
-                ip_reputation[orig_h] += 20.0
-            if is_rstr:
-                ip_reputation[orig_h] += 10.0
-                
-            is_reputation_breach = ip_reputation[orig_h] >= REPUTATION_THRESHOLD
-            
-            if prediction == 1 or is_reputation_breach:
-                reason = "ML-IDS Fast Path" if prediction == 1 else f"Reputation Breach ({ip_reputation[orig_h]:.1f}/100)"
-                logging.warning(f"⚠️ ANOMALY DETECTED! Source: {orig_h}")
-                logging.warning(f"   Reason: {reason} | {conn_count} conns, {unique_ports} ports, {rej_count} REJ in {WINDOW_SIZE}s")
-                logging.warning(f"🛡️  Executing firewall block on IP {orig_h}...")
-                
-                # Command to have the gateway insert an iptables rule on the fly
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-                lab_dir = os.path.join(current_dir, "../../lab")
-                
-                # Block traffic passing through the gateway (FORWARD)
-                cmd_fw = f"cd {lab_dir} && kathara exec gateway -- iptables -I FORWARD -s {orig_h} -j DROP"
-                
-                try:
-                    subprocess.run(cmd_fw, shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    logging.info(f"✅ IP {orig_h} successfully added to the Gateway Blacklist!")
-                    blocked_ips.add(orig_h)
-                    
-                    # Log the alert to a CSV for the Dashboard
-                    alert_log_path = os.path.join(current_dir, "../../lab/shared/zeek_logs/alerts.csv")
-                    if not os.path.exists(alert_log_path):
-                        with open(alert_log_path, "w") as alert_f:
-                            alert_f.write("timestamp,attacker_ip,reason\n")
-                    
-                    with open(alert_log_path, "a") as alert_f:
-                        alert_f.write(f"{int(time.time())},{orig_h},{reason}\n")
-                        
-                    # Clear history for blocked IP to save memory
-                    if orig_h in recent_conns: del recent_conns[orig_h]
-                    if orig_h in ip_reputation: del ip_reputation[orig_h]
-                    if orig_h in last_seen: del last_seen[orig_h]
-                except subprocess.CalledProcessError:
-                    logging.error(f"❌ Impossible to send iptables command to Kathara.")
+
+            feats = window.add(src, ts, port, state, dur, ob, rb)
+            proba = float(score(iso, rf, [[feats[k] for k in FEATURES]])[0][0])
+
+            # Slow path
+            if src in last_seen:
+                reputation[src] = max(0.0, reputation[src] - (ts - last_seen[src]) * DECAY_RATE)
+            last_seen[src] = ts
+            reputation[src] += CONN_PENALTY + REJ_PENALTY * (state == "REJ") + RSTR_PENALTY * (state == "RSTR")
+
+            summary = (f"{feats['conn_count']} conns, {feats['unique_ports']} ports, "
+                       f"{feats['rej_count']} REJ in {window.size:.0f}s")
+            if proba >= block_t or reputation[src] >= REPUTATION_THRESHOLD:
+                reason = (f"ML p={proba:.2f}" if proba >= block_t
+                          else f"Reputation {reputation[src]:.0f}/{REPUTATION_THRESHOLD:.0f}")
+                logging.warning(f"Attack from {src}: {reason} | {summary}")
+                if response.block(src, reason, allowlist):
+                    blocked.add(src)
+                    window.forget(src)
+                    reputation.pop(src, None)
+                    last_seen.pop(src, None)
+            elif proba >= alert_t:
+                logging.warning(f"Suspicious traffic from {src} (ML p={proba:.2f}), alert only | {summary}")
+                response.record_detection(src, f"ML p={proba:.2f} (below block threshold) | {summary}")
+
 
 if __name__ == "__main__":
-    # Relative paths
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    log_path = os.path.join(current_dir, "../../lab/shared/zeek_logs/conn.log")
-    model_p = os.path.join(current_dir, "../ml_pipeline/ids_model.pkl")
-    scaler_p = os.path.join(current_dir, "../ml_pipeline/ids_scaler.pkl")
-    iso_p = os.path.join(current_dir, "../ml_pipeline/ids_iso_model.pkl")
-    
-    if not os.path.exists(model_p):
-        logging.error("Model not found. Run 'python3 src/ml_pipeline/train_ids.py' first to create it.")
-        exit(1)
-        
-    tail_and_predict(log_path, model_p, scaler_p, iso_p)
+    main()

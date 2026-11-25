@@ -1,0 +1,11 @@
+# Addresses NetInfect must never block (one IP or CIDR per line).
+# A detection from these addresses is logged to detections.csv instead.
+#
+# Trade-off: every entry here is a blind spot. If an allowlisted host is
+# compromised, its attacks will be seen but not stopped. Keep the list short.
+
+127.0.0.0/8
+# Gateway interfaces (LAN, DMZ, WAN)
+192.168.10.254
+192.168.30.254
+203.0.113.254

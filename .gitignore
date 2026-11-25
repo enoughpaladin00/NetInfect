@@ -29,4 +29,8 @@ ENV/
 .kathara/
 lab/**/*.out
 lab/**/*.pcap
-Guidelines_NetInfect.md*.pkl
+Guidelines_NetInfect.md
+lab/shared/zeek_logs/detections.csv
+lab/shared/zeek_logs/.alerts.lock
+.pytest_cache/
+
