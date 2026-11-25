@@ -1,0 +1,24 @@
+{
+  "features": [
+    "conn_count",
+    "unique_ports",
+    "rej_count",
+    "rstr_count",
+    "total_duration",
+    "total_orig_bytes",
+    "total_resp_bytes",
+    "bytes_ratio",
+    "avg_duration"
+  ],
+  "window_size_s": 2.0,
+  "alert_threshold": 0.5,
+  "block_threshold": 0.9,
+  "trained_on": {
+    "baseline": "baseline.log",
+    "attack": "test_attack.log"
+  },
+  "sha256": {
+    "ids_iso_model.pkl": "61cb2e9baf5866ab2092077224cb75f88b9ab00eb26ab77e0a8f3a4a9c62fc90",
+    "ids_model.pkl": "5a3819671e04326dddcc112383a4d08cf693e8335aa9ef07f478b506916fa6d2"
+  }
+}
